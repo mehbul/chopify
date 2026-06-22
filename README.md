@@ -15,6 +15,10 @@
 
 ---
 
+## Demo
+
+<p align="center"><img src="assets/demo.gif" alt="Demo clip" width="280"></p>
+
 ## How it works
 
 <p align="center">
