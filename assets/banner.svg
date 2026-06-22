@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 330" width="1200" height="330" font-family="Segoe UI,Helvetica,Arial,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b0e36"/><stop offset="0.55" stop-color="#0b0820"/><stop offset="1" stop-color="#05050e"/>
+    </linearGradient>
+    <linearGradient id="viral" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ff2e63"/><stop offset="0.5" stop-color="#f857a6"/><stop offset="1" stop-color="#08d9d6"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <rect width="1200" height="330" rx="22" fill="url(#bg)"/>
+  <rect width="1200" height="6" fill="url(#viral)"/>
+  <text x="60" y="122" font-size="66" font-weight="800" fill="#ffffff" letter-spacing="1">VIRAL <tspan fill="url(#viral)">CLIP</tspan> PIPELINE</text>
+  <text x="62" y="166" font-size="23" fill="#cbcbe6">Turn long videos into scroll-stopping 9:16 shorts &#8212; automatically.</text>
+  <text x="62" y="203" font-size="16" font-weight="700" fill="#5ee7e3" letter-spacing="1.4">100% LOCAL   &#183;   ZERO PAID APIs   &#183;   AI-SCORED   &#183;   FACE-TRACKED   &#183;   AUTO CAPTIONS</text>
+  <g font-size="16" font-weight="600" fill="#ececf7">
+    <rect x="62" y="240" width="92" height="38" rx="19" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.22"/><text x="108" y="265" text-anchor="middle">yt-dlp</text>
+    <rect x="166" y="240" width="166" height="38" rx="19" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.22"/><text x="249" y="265" text-anchor="middle">faster-whisper</text>
+    <rect x="344" y="240" width="96" height="38" rx="19" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.22"/><text x="392" y="265" text-anchor="middle">ffmpeg</text>
+    <rect x="452" y="240" width="104" height="38" rx="19" fill="#ffffff" fill-opacity="0.07" stroke="#ffffff" stroke-opacity="0.22"/><text x="504" y="265" text-anchor="middle">OpenCV</text>
+  </g>
+  <g transform="translate(1000,56)">
+    <rect x="0" y="0" width="150" height="210" rx="24" fill="#0d0c1e" stroke="url(#viral)" stroke-width="3" filter="url(#glow)"/>
+    <rect x="13" y="15" width="124" height="180" rx="12" fill="#171130"/>
+    <circle cx="75" cy="100" r="34" fill="#ffffff" fill-opacity="0.06" stroke="url(#viral)" stroke-width="2"/>
+    <polygon points="64,81 64,119 98,100" fill="url(#viral)"/>
+    <rect x="28" y="156" width="94" height="9" rx="4" fill="url(#viral)"/>
+    <rect x="40" y="172" width="70" height="7" rx="3" fill="#ffffff" fill-opacity="0.3"/>
+  </g>
+</svg>

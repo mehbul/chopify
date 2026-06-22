@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 290" width="1200" height="290" font-family="Segoe UI,Helvetica,Arial,sans-serif">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#120a26"/><stop offset="1" stop-color="#05050e"/></linearGradient>
+    <linearGradient id="v" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ff2e63"/><stop offset="1" stop-color="#08d9d6"/></linearGradient>
+  </defs>
+  <rect width="1200" height="290" rx="22" fill="url(#bg)"/>
+  <text x="30" y="48" font-size="22" font-weight="800" fill="#ffffff" letter-spacing="2">HOW IT WORKS</text>
+  <text x="372" y="48" font-size="15" fill="#8a8aa8">one YouTube URL in &#8594; scored, captioned 9:16 clips out</text>
+  <g transform="translate(22,80)">
+    <rect width="168" height="162" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.13"/>
+    <rect width="168" height="5" rx="2.5" fill="url(#v)"/>
+    <circle cx="34" cy="46" r="17" fill="url(#v)"/>
+    <text x="34" y="52" font-size="18" font-weight="800" fill="#0b0820" text-anchor="middle">1</text>
+    <text x="22" y="98" font-size="19" font-weight="700" fill="#ffffff">Download</text>
+    <text x="22" y="123" font-size="13.5" font-weight="600" fill="#5ee7e3">yt-dlp</text>
+    <text x="22" y="143" font-size="12.5" fill="#9a9ab5">highest quality</text>
+  </g>  <g transform="translate(218,80)">
+    <rect width="168" height="162" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.13"/>
+    <rect width="168" height="5" rx="2.5" fill="url(#v)"/>
+    <circle cx="34" cy="46" r="17" fill="url(#v)"/>
+    <text x="34" y="52" font-size="18" font-weight="800" fill="#0b0820" text-anchor="middle">2</text>
+    <text x="22" y="98" font-size="19" font-weight="700" fill="#ffffff">Transcribe</text>
+    <text x="22" y="123" font-size="13.5" font-weight="600" fill="#5ee7e3">faster-whisper</text>
+    <text x="22" y="143" font-size="12.5" fill="#9a9ab5">word timestamps</text>
+  </g>  <g transform="translate(414,80)">
+    <rect width="168" height="162" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.13"/>
+    <rect width="168" height="5" rx="2.5" fill="url(#v)"/>
+    <circle cx="34" cy="46" r="17" fill="url(#v)"/>
+    <text x="34" y="52" font-size="18" font-weight="800" fill="#0b0820" text-anchor="middle">3</text>
+    <text x="22" y="98" font-size="19" font-weight="700" fill="#ffffff">AI Score</text>
+    <text x="22" y="123" font-size="13.5" font-weight="600" fill="#5ee7e3">8 viral criteria</text>
+    <text x="22" y="143" font-size="12.5" fill="#9a9ab5">keep 8+/10</text>
+  </g>  <g transform="translate(610,80)">
+    <rect width="168" height="162" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.13"/>
+    <rect width="168" height="5" rx="2.5" fill="url(#v)"/>
+    <circle cx="34" cy="46" r="17" fill="url(#v)"/>
+    <text x="34" y="52" font-size="18" font-weight="800" fill="#0b0820" text-anchor="middle">4</text>
+    <text x="22" y="98" font-size="19" font-weight="700" fill="#ffffff">Reframe</text>
+    <text x="22" y="123" font-size="13.5" font-weight="600" fill="#5ee7e3">OpenCV YuNet</text>
+    <text x="22" y="143" font-size="12.5" fill="#9a9ab5">9:16 face-track</text>
+  </g>  <g transform="translate(806,80)">
+    <rect width="168" height="162" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.13"/>
+    <rect width="168" height="5" rx="2.5" fill="url(#v)"/>
+    <circle cx="34" cy="46" r="17" fill="url(#v)"/>
+    <text x="34" y="52" font-size="18" font-weight="800" fill="#0b0820" text-anchor="middle">5</text>
+    <text x="22" y="98" font-size="19" font-weight="700" fill="#ffffff">Caption</text>
+    <text x="22" y="123" font-size="13.5" font-weight="600" fill="#5ee7e3">ffmpeg ASS</text>
+    <text x="22" y="143" font-size="12.5" fill="#9a9ab5">word-by-word</text>
+  </g>  <g transform="translate(1002,80)">
+    <rect width="168" height="162" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.13"/>
+    <rect width="168" height="5" rx="2.5" fill="url(#v)"/>
+    <circle cx="34" cy="46" r="17" fill="url(#v)"/>
+    <text x="34" y="52" font-size="18" font-weight="800" fill="#0b0820" text-anchor="middle">6</text>
+    <text x="22" y="98" font-size="19" font-weight="700" fill="#ffffff">Export</text>
+    <text x="22" y="123" font-size="13.5" font-weight="600" fill="#5ee7e3">C:\clips</text>
+    <text x="22" y="143" font-size="12.5" fill="#9a9ab5">ready to post</text>
+  </g>
+  <path d="M 199 150 L 210 161 L 199 172" fill="none" stroke="url(#v)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 395 150 L 406 161 L 395 172" fill="none" stroke="url(#v)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 591 150 L 602 161 L 591 172" fill="none" stroke="url(#v)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 787 150 L 798 161 L 787 172" fill="none" stroke="url(#v)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M 983 150 L 994 161 L 983 172" fill="none" stroke="url(#v)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+
+</svg>

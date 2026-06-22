@@ -1,49 +1,77 @@
-# Viral Clip Pipeline
+<p align="center">
+  <img src="assets/banner.svg" alt="Viral Clip Pipeline" width="880">
+</p>
 
-Turn a long YouTube video into vertical (9:16) short-form clips, fully on-device — **no paid APIs, no cloud**.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/100%25-Local-08d9d6" alt="Local">
+  <img src="https://img.shields.io/badge/Paid_APIs-zero-ff2e63" alt="No paid APIs">
+  <img src="https://img.shields.io/badge/ffmpeg-powered-007808?logo=ffmpeg&logoColor=white" alt="ffmpeg">
+  <img src="https://img.shields.io/badge/OpenCV-YuNet-5C3EE8?logo=opencv&logoColor=white" alt="OpenCV">
+  <img src="https://img.shields.io/badge/Windows-11-0078D6?logo=windows&logoColor=white" alt="Windows">
+</p>
 
-Downloads a video, transcribes it locally, scores the transcript for "virality",
-cuts the winning segments, reframes them to 9:16 while **tracking the speaker''s
-face**, and burns in animated **word-by-word (CapCut-style) captions**.
+<p align="center"><b>Drop in a YouTube link &#8594; get back scored, vertical, captioned clips &#8212; 100% on your own machine.</b></p>
 
-## Stack
-- **yt-dlp** — download (highest quality)
-- **faster-whisper** — local transcription, word-level timestamps (CPU `medium` default)
-- **ffmpeg** — cut, crop, caption burn-in
-- **OpenCV (YuNet)** — face detection for a dynamic, speaker-tracking 9:16 crop
-- Captions via the ffmpeg **ASS** engine (bold, white + yellow active word, black outline)
+---
+
+## How it works
+
+<p align="center">
+  <img src="assets/pipeline.svg" alt="Pipeline" width="980">
+</p>
+
+## Features
+
+- **AI virality scoring** &#8212; every segment is rated on hook, shock, humour, controversy, insight, emotion, energy and complete-arc; only **8+/10** clips are kept.
+- **Local transcription** &#8212; faster-whisper with word-level timestamps. Nothing leaves your PC.
+- **Speaker-tracking 9:16** &#8212; OpenCV (YuNet) auto-reframes to follow whoever is talking, with snap-on-cut and an edge-margin guard so faces never get half-cut.
+- **Word-by-word captions** &#8212; bold CapCut style, burnt in with ffmpeg.
+- **Zero paid APIs, zero cloud** &#8212; yt-dlp + faster-whisper + ffmpeg + OpenCV.
+- **Content decides the count** &#8212; a 1-hour video might yield 2 clips or 20.
 
 ## Requirements
+
 - Windows, Python 3.11+
-- `ffmpeg` + `ffprobe` on PATH — `winget install Gyan.FFmpeg`
-- `deno` on PATH (yt-dlp JS-challenge solving) — `winget install DenoLand.Deno`
+- `ffmpeg` + `ffprobe` on PATH &#8212; `winget install Gyan.FFmpeg`
+- `deno` on PATH (yt-dlp JS-challenge solving) &#8212; `winget install DenoLand.Deno`
 
 ## Install
-    python -m venv .venv
-    .venv\Scripts\python -m pip install -r requirements.txt
+
+```bash
+python -m venv .venv
+.venv\Scripts\python -m pip install -r requirements.txt
+```
 
 ## Usage
-**1. Download + transcribe** -> writes `work/transcript.json`:
 
-    .venv\Scripts\python download_and_transcribe.py "<YOUTUBE_URL>"
+**1. Download + transcribe** &#8594; writes `work/transcript.json`:
 
-**2. Score** -> write `work/segments.json` with the segments to clip. Each entry:
+```bash
+.venv\Scripts\python download_and_transcribe.py "<YOUTUBE_URL>"
+```
 
-    { "start": 134.2, "end": 187.6, "hook": "short title for the filename", "overall": 8.4 }
+**2. Score** &#8594; write `work/segments.json` with the segments to clip:
 
-Scoring reads `transcript.json` and rates segments on hook / shock / humour /
-controversy / insight / emotion / energy / complete-arc. In the reference setup
-an LLM agent does this in-loop (zero API cost); you can score it however you like.
+```json
+{ "start": 134.2, "end": 187.6, "hook": "short title for the filename", "overall": 8.4 }
+```
 
-**3. Render** -> cut + 9:16 speaker-tracking crop + burnt captions -> `C:\clips`:
+Scoring reads `transcript.json` and rates segments on the eight criteria above. In the
+reference setup an LLM agent does this in-loop (zero API cost); score it however you like.
 
-    .venv\Scripts\python render_clips.py work
+**3. Render** &#8594; cut + 9:16 speaker-tracking crop + burnt captions &#8594; `C:\clips`:
+
+```bash
+.venv\Scripts\python render_clips.py work
+```
 
 ## Notes
-- **GPU:** faster-whisper (CTranslate2) is **CUDA/NVIDIA-only**; on AMD it runs on CPU.
-  (whisper.cpp + Vulkan was attempted for AMD but is unstable on RDNA3 — crashes or
-  returns corrupted output.)
-- **Captions:** built-in ffmpeg ASS renderer (the PyPI `pycaps` is an empty stub).
-- Output folder is `C:\clips` (change `OUT_DIR` in `render_clips.py`).
 
-Personal / educational use — you are responsible for the rights to any video you process.
+- **GPU:** faster-whisper (CTranslate2) is **CUDA / NVIDIA-only**; on AMD it runs on CPU
+  (whisper.cpp + Vulkan was attempted for AMD but is unstable on RDNA3 &#8212; crashes or
+  returns corrupted output).
+- **Captions** use a built-in ffmpeg ASS renderer (the PyPI `pycaps` is an empty stub).
+- Output folder is `C:\clips` &#8212; change `OUT_DIR` in `render_clips.py`.
+
+<sub>Personal / educational use &#8212; you are responsible for the rights to any video you process.</sub>
