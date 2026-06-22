@@ -1,0 +1,5 @@
+# Viral clip pipeline — local, no paid APIs
+yt-dlp
+faster-whisper
+opencv-python
+pycaps   # optional caption renderer; ffmpeg ASS engine is the built-in default

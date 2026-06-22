@@ -1,0 +1,11 @@
+# local environment & large artifacts -- never commit
+.venv/
+whisper.cpp/
+whisper_old/
+work/
+build_msvc*/
+__pycache__/
+*.pyc
+*.onnx
+*.log
+*.sh
