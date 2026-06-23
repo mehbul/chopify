@@ -15,6 +15,8 @@
 
 ---
 
+**Chopify is a free, open-source, fully local alternative to Opus Clip, Vizard, Klap, 2Short and Submagic.** It automatically turns long videos &#8212; YouTube videos, podcasts, interviews and webinars &#8212; into short, ready-to-post viral clips in **16:9, 9:16 (vertical) or 1:1**, with AI virality scoring, automatic face-tracking reframe, and burnt-in word-by-word captions. Everything runs **100% on your own machine**: no subscription, no cloud upload, and no API keys.
+
 > [!TIP]
 > **New in v1.1** &#8212; output is now **16:9 full-frame by default** (the whole screen, no crop). Add `--aspect 9:16` for vertical or `--aspect 1:1` for square, and **every clip auto-saves a PNG poster** next to the `.mp4`.
 
@@ -91,6 +93,26 @@ reference setup an LLM agent does this in-loop (zero API cost); score it however
 ```bash
 .venv\Scripts\python render_clips.py work
 ```
+
+## FAQ
+
+**Is there a free alternative to Opus Clip?**
+Yes &#8212; Chopify is a free, open-source, self-hosted alternative to Opus Clip, Vizard and Klap. It runs entirely on your own computer, with no subscription and no API keys.
+
+**Can I turn long videos into short clips without paying?**
+Yes. Chopify downloads a video, transcribes it locally, AI-scores every segment for virality, and exports the best moments as ready-to-post clips &#8212; for free.
+
+**Does it run locally, offline and privately?**
+Yes. Download, transcription, scoring and rendering all happen on your machine. Nothing is uploaded to the cloud.
+
+**What formats / aspect ratios does it export?**
+16:9 (landscape, default), 9:16 (vertical for TikTok, Reels and YouTube Shorts) and 1:1 (square). Each clip also gets a PNG poster.
+
+**Do I need an OpenAI, Gemini or other paid API key?**
+No. Chopify uses only open-source tools: yt-dlp, faster-whisper, ffmpeg and OpenCV.
+
+**What is it good for?**
+Repurposing podcasts, interviews, webinars, lectures and long YouTube videos into short-form clips for TikTok, Instagram Reels and YouTube Shorts.
 
 ## Notes
 

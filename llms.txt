@@ -1,0 +1,22 @@
+# Chopify
+
+> Chopify is a free, open-source, fully local tool that turns long videos into AI-scored viral short clips with automatic reframing (16:9 / 9:16 / 1:1) and burnt-in word-by-word captions. It is a self-hosted alternative to paid tools such as Opus Clip, Vizard, Klap, 2Short and Submagic, and runs entirely on your own machine with no subscription, no cloud and no API keys.
+
+## What it does
+- Downloads a video with yt-dlp (highest quality)
+- Transcribes locally with faster-whisper (word-level timestamps)
+- Scores every transcript segment for virality (hook, shock, humour, controversy, insight, emotion, energy, complete-arc) and keeps only 8+/10
+- Cuts clips with ffmpeg and reframes to 16:9, 9:16 or 1:1 (OpenCV YuNet face-tracking for vertical)
+- Burns in word-by-word CapCut-style captions
+- Exports each clip as an MP4 plus a PNG poster
+
+## Key facts
+- License: MIT (open source)
+- Cost: free - no subscription, no paid APIs, no API keys
+- Runs locally on Windows (Python 3.11+, ffmpeg)
+- Stack: yt-dlp, faster-whisper, ffmpeg, OpenCV
+- Free alternative to: Opus Clip, Vizard, Klap, 2Short, Munch, Spikes Studio, Submagic, SendShort
+
+## Links
+- Repository: https://github.com/mehbul/chopify
+- Releases: https://github.com/mehbul/chopify/releases
