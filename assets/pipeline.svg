@@ -5,7 +5,7 @@
   </defs>
   <rect width="1200" height="290" rx="22" fill="url(#bg)"/>
   <text x="30" y="48" font-size="22" font-weight="800" fill="#ffffff" letter-spacing="2">HOW IT WORKS</text>
-  <text x="372" y="48" font-size="15" fill="#8a8aa8">one YouTube URL in &#8594; scored, captioned 9:16 clips out</text>
+  <text x="372" y="48" font-size="15" fill="#8a8aa8">one YouTube URL in &#8594; scored, captioned clips out</text>
   <g transform="translate(22,80)">
     <rect width="168" height="162" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.13"/>
     <rect width="168" height="5" rx="2.5" fill="url(#v)"/>
@@ -35,9 +35,9 @@
     <rect width="168" height="5" rx="2.5" fill="url(#v)"/>
     <circle cx="34" cy="46" r="17" fill="url(#v)"/>
     <text x="34" y="52" font-size="18" font-weight="800" fill="#0b0820" text-anchor="middle">4</text>
-    <text x="22" y="98" font-size="19" font-weight="700" fill="#ffffff">Reframe</text>
+    <text x="22" y="98" font-size="19" font-weight="700" fill="#ffffff">Format</text>
     <text x="22" y="123" font-size="13.5" font-weight="600" fill="#5ee7e3">OpenCV YuNet</text>
-    <text x="22" y="143" font-size="12.5" fill="#9a9ab5">9:16 face-track</text>
+    <text x="22" y="143" font-size="12.5" fill="#9a9ab5">16:9 / 9:16 / 1:1</text>
   </g>  <g transform="translate(806,80)">
     <rect width="168" height="162" rx="14" fill="#ffffff" fill-opacity="0.04" stroke="#ffffff" stroke-opacity="0.13"/>
     <rect width="168" height="5" rx="2.5" fill="url(#v)"/>
@@ -53,7 +53,7 @@
     <text x="34" y="52" font-size="18" font-weight="800" fill="#0b0820" text-anchor="middle">6</text>
     <text x="22" y="98" font-size="19" font-weight="700" fill="#ffffff">Export</text>
     <text x="22" y="123" font-size="13.5" font-weight="600" fill="#5ee7e3">C:\clips</text>
-    <text x="22" y="143" font-size="12.5" fill="#9a9ab5">ready to post</text>
+    <text x="22" y="143" font-size="12.5" fill="#9a9ab5">MP4 + PNG</text>
   </g>
   <path d="M 199 150 L 210 161 L 199 172" fill="none" stroke="url(#v)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M 395 150 L 406 161 L 395 172" fill="none" stroke="url(#v)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>

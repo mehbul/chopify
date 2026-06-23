@@ -1,37 +1,39 @@
 """
-Stage 2 of the viral-clip pipeline  (dynamic speaker-tracking crop, v3).
+Stage 2 of the viral-clip pipeline.
 
-For each scored segment:
-  1. low-res detection pass (ffmpeg) -> OpenCV face track over time
-     (YuNet DNN detector, Haar fallback)
-  2. smooth the track into a time-varying horizontal crop that follows the
-     dominant face, with:
-        - snap-on-cut  (big position jump => instant jump, no lag)
-        - edge-margin guard (face never within ~18% of the crop edge)
-  3. final ffmpeg pass: cut + dynamic 9:16 crop (sendcmd) + scale +
-     burnt CapCut word-by-word captions -> C:\\clips\\<hook>.mp4
+Renders scored segments to clips in a chosen aspect ratio:
+  - 16:9 (default) -> landscape, full frame kept
+  - 9:16           -> vertical, dynamic speaker-tracking crop (YuNet + snap-on-cut)
+  - 1:1            -> square
+Captions are word-by-word CapCut style, burnt in via the ffmpeg ASS engine.
 
 No external/paid APIs. ffmpeg + OpenCV only. Usage:
-    python render_clips.py [workdir]
+    python render_clips.py [workdir] [--aspect 16:9|9:16|1:1]
 """
 import sys
 import re
 import json
+import argparse
 import subprocess
 from pathlib import Path
 
 OUT_DIR = Path(r"C:\clips")
-TARGET_W, TARGET_H = 1080, 1920          # 9:16 vertical
+# aspect -> (target_w, target_h, caption_font_size, caption_margin_v)
+ASPECTS = {
+    "16:9": (1920, 1080, 72, 95),
+    "9:16": (1080, 1920, 96, 300),
+    "1:1":  (1080, 1080, 82, 120),
+}
+DEFAULT_ASPECT = "16:9"
 FONT = "Arial Black"
-FONT_SIZE = 96
 WORDS_PER_LINE = 3
 WHITE = r"{\c&HFFFFFF&}"
 HIGHLIGHT = r"{\c&H00FFFF&}"
-DET_FPS = 5            # detection samples per second
-DET_W = 640            # detection-frame width
-EMA_ALPHA = 0.20      # smoothing for small moves
-JUMP_FRAC = 0.22      # face jump > this*W  => treat as cut => snap
-MARGIN_FRAC = 0.18    # keep face >= this*crop_w inset from crop edge
+DET_FPS = 5
+DET_W = 640
+EMA_ALPHA = 0.20
+JUMP_FRAC = 0.22
+MARGIN_FRAC = 0.18
 YUNET_URL = ("https://github.com/opencv/opencv_zoo/raw/main/models/"
              "face_detection_yunet/face_detection_yunet_2023mar.onnx")
 
@@ -53,20 +55,26 @@ def ffprobe_dims(path):
     return int(w), int(h)
 
 
-def crop_dims(W, H):
-    crop_h = H
-    crop_w = int(round(H * 9 / 16))
-    if crop_w > W:
-        crop_w = W
-        crop_h = int(round(W * 16 / 9))
-    crop_w -= crop_w % 2
-    crop_h -= crop_h % 2
-    y0 = max(0, (H - crop_h) // 2)
-    return crop_w, crop_h, y0
+def crop_for(W, H, tw, th):
+    """Largest centred crop of the WxH source matching the target aspect."""
+    tar = tw / float(th)
+    src = W / float(H)
+    if abs(src - tar) < 1e-3:
+        cw, ch = W, H
+    elif src > tar:                      # source wider -> crop width
+        ch = H
+        cw = int(round(H * tar))
+    else:                                # source taller -> crop height
+        cw = W
+        ch = int(round(W / tar))
+    cw -= cw % 2
+    ch -= ch % 2
+    x0 = max(0, (W - cw) // 2)
+    y0 = max(0, (H - ch) // 2)
+    return cw, ch, x0, y0
 
 
 def _make_detector(workdir):
-    """Return ('yunet', FaceDetectorYN) or ('haar', CascadeClassifier)."""
     import cv2
     model = Path(workdir).parent / "yunet.onnx"
     if not model.exists():
@@ -77,9 +85,7 @@ def _make_detector(workdir):
             print("  YuNet download failed -> Haar:", e, flush=True)
     if model.exists():
         try:
-            det = cv2.FaceDetectorYN.create(str(model), "", (DET_W, 360),
-                                            0.6, 0.3, 5000)
-            return "yunet", det
+            return "yunet", cv2.FaceDetectorYN.create(str(model), "", (DET_W, 360), 0.6, 0.3, 5000)
         except Exception as e:
             print("  YuNet init failed -> Haar:", e, flush=True)
     return "haar", cv2.CascadeClassifier(
@@ -95,7 +101,6 @@ def detect_track(source, start, dur, W, workdir):
          "-t", f"{dur:.3f}", "-vf", f"fps={DET_FPS},scale={DET_W}:-2",
          "-an", str(det_path)],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
     kind, det = _make_detector(workdir)
     cap = cv2.VideoCapture(str(det_path))
     dw = cap.get(cv2.CAP_PROP_FRAME_WIDTH) or DET_W
@@ -133,13 +138,11 @@ def detect_track(source, start, dur, W, workdir):
 
 
 def smooth_track(track, W, crop_w):
-    """Snap on cuts, EMA-ease small moves, keep face inset from crop edge."""
     half = crop_w / 2.0
-    max_off = half - crop_w * MARGIN_FRAC       # max |face - cropcenter|
+    max_off = half - crop_w * MARGIN_FRAC
     jump = W * JUMP_FRAC
     known = [c for _, c in track if c is not None]
     base = sorted(known)[len(known) // 2] if known else W / 2.0
-
     filled = []
     last = base
     for t, c in track:
@@ -149,16 +152,15 @@ def smooth_track(track, W, crop_w):
         filled.append((t, c))
     if not filled:
         return [(0.0, min(max(base, half), W - half))]
-
     out = []
     c = filled[0][1]
     prev_face = filled[0][1]
     for t, face in filled:
         if abs(face - prev_face) > jump:
-            c = face                              # hard cut -> snap
+            c = face
         else:
-            c += EMA_ALPHA * (face - c)           # smooth pan
-        if face - c > max_off:                    # edge-margin guard
+            c += EMA_ALPHA * (face - c)
+        if face - c > max_off:
             c = face - max_off
         elif c - face > max_off:
             c = face + max_off
@@ -192,20 +194,18 @@ def ass_escape(s):
     return s.replace("\\", "").replace("{", "(").replace("}", ")")
 
 
-def build_ass(words, clip_start, clip_end, path):
+def build_ass(words, clip_start, clip_end, path, tw, th, font_size, margin_v):
     sub = [w for w in words if w["end"] > clip_start and w["start"] < clip_end]
     header = (
-        "[Script Info]\n"
-        "ScriptType: v4.00+\n"
-        f"PlayResX: {TARGET_W}\nPlayResY: {TARGET_H}\n"
-        "WrapStyle: 2\nScaledBorderAndShadow: yes\n\n"
+        "[Script Info]\nScriptType: v4.00+\n"
+        f"PlayResX: {tw}\nPlayResY: {th}\nWrapStyle: 2\nScaledBorderAndShadow: yes\n\n"
         "[V4+ Styles]\n"
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, "
         "ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
         "MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Cap,{FONT},{FONT_SIZE},&H00FFFFFF,&H000000FF,&H00000000,"
-        "&H64000000,-1,0,0,0,100,100,0,0,1,5,2,2,80,80,300,1\n\n"
+        f"Style: Cap,{FONT},{font_size},&H00FFFFFF,&H000000FF,&H00000000,"
+        f"&H64000000,-1,0,0,0,100,100,0,0,1,5,2,2,80,80,{margin_v},1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
         "Effect, Text\n"
@@ -228,20 +228,26 @@ def build_ass(words, clip_start, clip_end, path):
     Path(path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
 
-def render(seg, words, source, W, H, workdir):
+def render(seg, words, source, W, H, workdir, aspect):
+    tw, th, font_size, margin_v = ASPECTS[aspect]
     start = float(seg["start"])
     end = float(seg["end"])
     dur = end - start
-    crop_w, crop_h, y0 = crop_dims(W, H)
+    cw, ch, x0, y0 = crop_for(W, H, tw, th)
+    build_ass(words, start, end, OUT_DIR / "_caption.ass", tw, th, font_size, margin_v)
 
-    raw = detect_track(source, start, dur, W, workdir)
-    track = smooth_track(raw, W, crop_w)
-    build_sendcmd(track, crop_w, OUT_DIR / "_crop.cmd")
-    init_x = max(0, min(int(round(track[0][1] - crop_w / 2.0)), W - crop_w))
-    build_ass(words, start, end, OUT_DIR / "_caption.ass")
+    needs_track = cw < W * 0.95          # real horizontal crop -> track the speaker
+    if needs_track:
+        track = smooth_track(detect_track(source, start, dur, W, workdir), W, cw)
+        build_sendcmd(track, cw, OUT_DIR / "_crop.cmd")
+        init_x = max(0, min(int(round(track[0][1] - cw / 2.0)), W - cw))
+        vf = (f"sendcmd=f=_crop.cmd,crop={cw}:{ch}:{init_x}:{y0},"
+              f"scale={tw}:{th},subtitles=_caption.ass")
+        mode = "speaker-tracked"
+    else:
+        vf = f"crop={cw}:{ch}:{x0}:{y0},scale={tw}:{th},subtitles=_caption.ass"
+        mode = "full-frame"
 
-    vf = (f"sendcmd=f=_crop.cmd,crop={crop_w}:{crop_h}:{init_x}:{y0},"
-          f"scale={TARGET_W}:{TARGET_H},subtitles=_caption.ass")
     out = OUT_DIR / (sanitize(seg.get("hook", "clip")) + ".mp4")
     cmd = ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", str(source),
            "-t", f"{dur:.3f}", "-vf", vf,
@@ -249,15 +255,25 @@ def render(seg, words, source, W, H, workdir):
            "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out)]
     print(">", " ".join(cmd), flush=True)
     subprocess.run(cmd, check=True, cwd=str(OUT_DIR))
-    tracked = sum(1 for _, c in raw if c is not None)
-    print(f"SAVED {out}  (dynamic 9:16 {crop_w}x{crop_h}, "
-          f"{tracked}/{len(raw)} samples had a face)", flush=True)
+
+    # poster: a representative still saved next to the clip (<clip>.png)
+    poster = out.with_suffix(".png")
+    subprocess.run(["ffmpeg", "-y", "-ss", f"{dur * 0.4:.2f}", "-i", str(out),
+                    "-frames:v", "1", "-q:v", "2", str(poster)],
+                   check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    print(f"SAVED {out}  ({aspect} {tw}x{th}, {mode})  + poster {poster.name}", flush=True)
     return out
 
 
 def main():
-    workdir = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("work")
-    workdir = workdir.resolve()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("workdir", nargs="?", default="work")
+    ap.add_argument("--aspect", default=DEFAULT_ASPECT, choices=list(ASPECTS),
+                    help="output aspect ratio (default 16:9)")
+    args = ap.parse_args()
+
+    workdir = Path(args.workdir).resolve()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     transcript = json.loads((workdir / "transcript.json").read_text(encoding="utf-8"))
@@ -271,7 +287,7 @@ def main():
     source = source.resolve()
 
     W, H = ffprobe_dims(source)
-    print(f"Source {source} {W}x{H}; {len(segments)} clips to render", flush=True)
+    print(f"Source {source} {W}x{H}; {len(segments)} clips -> {args.aspect}", flush=True)
 
     saved = []
     for i, seg in enumerate(segments, 1):
@@ -279,7 +295,7 @@ def main():
               f"{seg.get('hook', '')[:60]!r} (overall {seg.get('overall')}) ---",
               flush=True)
         try:
-            saved.append(str(render(seg, words, source, W, H, workdir)))
+            saved.append(str(render(seg, words, source, W, H, workdir, args.aspect)))
         except subprocess.CalledProcessError as e:
             print(f"ERROR rendering clip {i}: {e}", flush=True)
 

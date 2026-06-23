@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/Windows-11-0078D6?logo=windows&logoColor=white" alt="Windows">
 </p>
 
-<p align="center"><b>Drop in a YouTube link &#8594; get back scored, vertical, captioned clips &#8212; 100% on your own machine.</b></p>
+<p align="center"><b>Drop in a YouTube link &#8594; get back scored, captioned clips (16:9 or 9:16) &#8212; 100% on your own machine.</b></p>
 
 ---
 
@@ -29,7 +29,8 @@
 
 - **AI virality scoring** &#8212; every segment is rated on hook, shock, humour, controversy, insight, emotion, energy and complete-arc; only **8+/10** clips are kept.
 - **Local transcription** &#8212; faster-whisper with word-level timestamps. Nothing leaves your PC.
-- **Speaker-tracking 9:16** &#8212; OpenCV (YuNet) auto-reframes to follow whoever is talking, with snap-on-cut and an edge-margin guard so faces never get half-cut.
+- **Multi-format output** &#8212; 16:9 (default, full frame), 9:16 (speaker-tracking auto-reframe via OpenCV YuNet, snap-on-cut + edge guard), or 1:1.
+- **PNG poster per clip** &#8212; a ready thumbnail saved next to every clip.
 - **Word-by-word captions** &#8212; bold CapCut style, burnt in with ffmpeg.
 - **Zero paid APIs, zero cloud** &#8212; yt-dlp + faster-whisper + ffmpeg + OpenCV.
 - **Content decides the count** &#8212; a 1-hour video might yield 2 clips or 20.
@@ -82,7 +83,7 @@ python -m venv .venv
 Scoring reads `transcript.json` and rates segments on the eight criteria above. In the
 reference setup an LLM agent does this in-loop (zero API cost); score it however you like.
 
-**3. Render** &#8594; cut + 9:16 speaker-tracking crop + burnt captions &#8594; `C:\clips`:
+**3. Render** &#8594; cut + reframe (16:9 default; `--aspect 9:16` / `1:1`) + burnt captions + a `.png` poster &#8594; `C:\clips`:
 
 ```bash
 .venv\Scripts\python render_clips.py work
