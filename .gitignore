@@ -1,5 +1,6 @@
 # local environment & large artifacts -- never commit
 .venv/
+venv/
 whisper.cpp/
 whisper_old/
 work/
@@ -9,3 +10,7 @@ __pycache__/
 *.onnx
 *.log
 *.sh
+
+# chopify outputs
+clips/
+.pytest_cache/

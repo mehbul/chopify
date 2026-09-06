@@ -3,18 +3,21 @@
 > Chopify is a free, open-source, fully local tool that turns long videos into AI-scored viral short clips with automatic reframing (16:9 / 9:16 / 1:1) and burnt-in word-by-word captions. It is a self-hosted alternative to paid tools such as Opus Clip, Vizard, Klap, 2Short and Submagic, and runs entirely on your own machine with no subscription, no cloud and no API keys.
 
 ## What it does
+- One command: `python chopify.py "URL"` chains download -> transcribe -> score -> render
 - Downloads a video with yt-dlp (highest quality)
 - Transcribes locally with faster-whisper (word-level timestamps)
-- Scores every transcript segment for virality (hook, shock, humour, controversy, insight, emotion, energy, complete-arc) and keeps only 8+/10
+- Scores transcript windows for virality (hook, shock, humour, controversy, insight, emotion, energy, complete-arc) using a built-in deterministic heuristic; optionally a local Ollama model with `--llm`
+- Optionally tightens clips: removes filler words and long silences with `--tighten` (captions re-timed automatically)
 - Cuts clips with ffmpeg and reframes to 16:9, 9:16 or 1:1 (OpenCV YuNet face-tracking for vertical)
-- Burns in word-by-word CapCut-style captions
-- Exports each clip as an MP4 plus a PNG poster
+- Burns in word-by-word CapCut-style captions with style presets (default / hormozi / mrbeast / podcast) and optional -14 LUFS loudness normalization (`--loudnorm`)
+- Exports each clip as an MP4 plus a PNG poster and a `.meta.json` with ready-to-post title, description and hashtags
+- Writes output to `./clips` by default (configurable via `--out` or `$CHOPIFY_OUT`)
 
 ## Key facts
 - License: MIT (open source)
 - Cost: free - no subscription, no paid APIs, no API keys
 - Runs locally on Windows (Python 3.11+, ffmpeg)
-- Stack: yt-dlp, faster-whisper, ffmpeg, OpenCV
+- Stack: yt-dlp, faster-whisper, ffmpeg, OpenCV; Ollama optional for LLM scoring
 - Free alternative to: Opus Clip, Vizard, Klap, 2Short, Munch, Spikes Studio, Submagic, SendShort
 
 ## Links
