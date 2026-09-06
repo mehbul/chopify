@@ -18,7 +18,7 @@
 **Chopify is a free, open-source, fully local alternative to Opus Clip, Vizard, Klap, 2Short and Submagic.** It automatically turns long videos &#8212; YouTube videos, podcasts, interviews and webinars &#8212; into short, ready-to-post viral clips in **16:9, 9:16 (vertical) or 1:1**, with AI virality scoring, automatic face-tracking reframe, and burnt-in word-by-word captions. Everything runs **100% on your own machine**: no subscription, no cloud upload, and no API keys.
 
 > [!TIP]
-> **New in v1.2** &#8212; **one command does everything**: `python chopify.py "URL"`. Clip picking is now **built in** (deterministic heuristic, or a local Ollama model via `--llm`) &#8212; no external LLM agent needed. Plus: `--tighten` removes "um"s and dead air, `--style hormozi/mrbeast/podcast` caption presets, `--loudnorm` broadcast loudness, `.meta.json` ready-to-post metadata per clip, and the output folder is finally configurable (`--out`, default `./clips`).
+> **New in v1.3** &#8212; **clips that actually end on a complete thought** (the #1 gripe with AI clippers), plus a **review workflow**: a numbered candidate table lets you **render only the clips you want** (`--clips 1,3,5`). **Keyword search** (`--search "pricing"`) skips virality scoring and clips straight to a topic. **Preview drafts** (`--preview`) render fast 480p cuts first. And a **pre-flight check** now catches missing ffmpeg / libx264 / packages before the pipeline runs, with fix hints.
 
 ## Demo
 
@@ -34,6 +34,11 @@
 
 - **One command** &#8212; `python chopify.py "<link>"` runs the whole pipeline: download &#8594; transcribe &#8594; score &#8594; render.
 - **Built-in AI virality scoring &#8212; no API keys** &#8212; every segment is rated on hook, shock, humour, controversy, insight, emotion, energy and complete-arc. A deterministic heuristic runs out of the box; add `--llm` to use a **local Ollama model** instead. Nothing is ever sent to the cloud.
+- **Complete-thought clips** &#8212; every clip is grown/trimmed to end on a sentence with terminal punctuation. No more clips that start or end mid-thought.
+- **Review workflow** &#8212; scoring prints a numbered candidate table; render only the ones you want with `--clips 1,3,5`.
+- **Keyword search** (`--search "pricing"`) &#8212; bypass virality scoring and build clips around transcript sentences containing your keywords.
+- **Preview drafts** (`--preview`) &#8212; render fast 480p cuts (no poster/meta) to check your picks before the full render.
+- **Pre-flight check** &#8212; before any stage, verifies ffmpeg/ffprobe, the H.264/AAC encoders, and required Python packages, with fix hints. Bypass with `--no-preflight`.
 - **Tighten cuts** (`--tighten`) &#8212; filler words ("um", "uh", "you know") and long silences are removed automatically, with captions re-timed to match.
 - **Caption style presets** &#8212; `default`, `hormozi` (red highlight), `mrbeast` (green), `podcast` (clean) &#8212; word-by-word, burnt in with ffmpeg.
 - **Ready-to-post metadata** &#8212; every clip ships with a `.meta.json` (title, description, hashtags) plus a PNG poster thumbnail.
@@ -81,6 +86,9 @@ python -m venv .venv
 python chopify.py "https://youtube.com/watch?v=VIDEO_ID"
 python chopify.py "URL" --aspect 9:16 --style hormozi --tighten --loudnorm
 python chopify.py "URL" --llm qwen2.5:7b          # local Ollama picks the clips
+python chopify.py "URL" --search "pricing"         # clip around keyword matches
+python chopify.py "URL" --clips 1,3,5              # render only the numbered picks
+python chopify.py "URL" --preview                  # fast 480p draft preview first
 ```
 
 **Or run the stages individually:**
@@ -97,14 +105,19 @@ python download_and_transcribe.py "<YOUTUBE_URL>"
 python score_clips.py work                        # built-in heuristic, zero deps
 python score_clips.py work --llm qwen2.5:7b       # local Ollama (JSON mode)
 python score_clips.py work --min-score 7 --max-clips 12
+python score_clips.py work --search "pricing"     # keyword search over the transcript
+python score_clips.py work --clips 1,3,5          # render only the numbered candidates
 ```
 
 Each segment: `{"start": 134.2, "end": 187.6, "hook": "short title", "overall": 8.4}`.
 The heuristic scorer rates windows on the eight criteria (hook, shock, humour,
 controversy, insight, emotion, energy, complete-arc) and keeps clips at/above
-6.5 by default. With `--llm`, a local Ollama model does the picking in strict
+6.5 by default. Every clip ends on a complete sentence (terminal punctuation) &#8212;
+never mid-thought. With `--llm`, a local Ollama model does the picking in strict
 JSON mode and falls back to the heuristic automatically if Ollama is missing.
-Prefer an LLM agent? The JSON format above is all it needs.
+`--search "pricing"` bypasses scoring and builds clips around transcript sentences
+containing all your keywords. `--clips 1,3,5` renders only the numbered rows from
+the candidate table. Prefer an LLM agent? The JSON format above is all it needs.
 
 **3. Render** &#8594; cut + reframe + burnt captions + poster + `.meta.json`:
 
@@ -130,6 +143,15 @@ Yes. Download, transcription, scoring and rendering all happen on your machine. 
 
 **Do I need an OpenAI, Gemini or other paid API key?**
 No. Chopify uses only open-source tools: yt-dlp, faster-whisper, ffmpeg and OpenCV. Clip selection runs on a built-in heuristic scorer, or on a **local** Ollama model with `--llm` &#8212; never a cloud API.
+
+**Can I find clips about a specific topic instead of virality scoring?**
+Yes. Pass `--search "pricing"` (or any keywords) to skip the virality scorer and build clips around every transcript sentence containing all your keywords. It pairs naturally with `--clips 1,3,5` so you can render only the best matches.
+
+**Can I preview clips before the full render?**
+Yes. `--preview` renders fast 480p drafts (no poster or `.meta.json`) so you can eyeball your picks quickly, then re-run without `--preview` for the full-quality output.
+
+**Why does chopify say "PREFLIGHT FAILED" / complain about libx264?**
+Before any stage, chopify checks that ffmpeg is on PATH, that ffmpeg can actually encode H.264 (libx264) and AAC (clips from builds without those are unplayable or silent), and that the Python packages are installed. Each problem comes with a fix hint. Bypass the check with `--no-preflight` if you know your setup is fine.
 
 **How does chopify decide which moments become clips?**
 Every transcript window is rated 0&#8211;10 on hook, shock, humour, controversy, insight, emotion, energy and complete-arc. By default a deterministic heuristic does this instantly and offline; `--llm qwen2.5:7b` hands the job to a local Ollama model for context-aware selection.

@@ -67,6 +67,14 @@ def load_transcript(workdir):
     return data
 
 
+ARC_RE = re.compile(r"[.!?\u2026][\"')\]]?$")
+
+
+def is_arc_complete(text):
+    """True when a sentence ends with terminal punctuation (a complete thought)."""
+    return bool(ARC_RE.search((text or "").strip()))
+
+
 def sentenceize(words, gap=1.2):
     """Split a word list into sentences on terminal punctuation or >gap-second pauses."""
     sentences, cur = [], []
@@ -75,7 +83,7 @@ def sentenceize(words, gap=1.2):
             sentences.append(cur)
             cur = []
         cur.append(w)
-        if re.search(r"[.!?\u2026][\"')\]]?$", w["word"].strip()):
+        if is_arc_complete(w["word"]):
             sentences.append(cur)
             cur = []
     if cur:
@@ -106,7 +114,7 @@ def score_sentence(sent):
     low = " " + text.lower() + " "
     dur = max(0.1, sent["end"] - sent["start"])
     wps = len(sent["words"]) / dur
-    arc = 1.0 if re.search(r"[.!?\u2026][\"')\]]?$", text) else 0.55
+    arc = 1.0 if is_arc_complete(text) else 0.55
     scores = {
         "hook": _cues(low, HOOK_CUES),
         "shock": _cues(low, SHOCK_CUES),
@@ -135,42 +143,138 @@ def _norm_token(w):
     return re.sub(r"[^\w']", "", w.lower())
 
 
+def _grow_window(sentences, seed, taken, min_len, max_len):
+    """Grow a window from `seed` to >= min_len seconds, then extend or trim it so
+    it always ends on a complete sentence (the #1 complaint about AI clippers is
+    clips that start or end mid-thought). Returns (seed, end_idx) or None."""
+    n = len(sentences)
+
+    def span(a, b):
+        return sentences[b]["end"] - sentences[a]["start"]
+
+    j = seed
+    while span(seed, j) < min_len and j + 1 < n and not taken[j + 1]:
+        j += 1
+    while span(seed, j) > max_len and j > seed:
+        j -= 1
+    if span(seed, j) < min_len * 0.6:
+        return None
+    # complete-thought rule: keep growing (within max_len) until the last
+    # sentence ends with terminal punctuation
+    while not is_arc_complete(sentences[j]["text"]) and j + 1 < n \
+            and not taken[j + 1] and span(seed, j + 1) <= max_len:
+        j += 1
+    # still incomplete -> back off to the last complete sentence in the window
+    while j > seed and not is_arc_complete(sentences[j]["text"]):
+        j -= 1
+    if not is_arc_complete(sentences[j]["text"]):
+        return None
+    if span(seed, j) < min_len * 0.6:
+        return None
+    return seed, j
+
+
+def _make_segment(sentences, a, b):
+    """Score the sentence window sentences[a..b] and build a segment dict."""
+    win = sentences[a:b + 1]
+    words = [w for s in win for w in s["words"]]
+    text = " ".join(w["word"] for w in words)
+    scores, _ = score_sentence({"start": win[0]["start"], "end": win[-1]["end"],
+                                "text": text, "words": words})
+    return {
+        "start": round(win[0]["start"], 2),
+        "end": round(win[-1]["end"], 2),
+        "hook": make_hook(win[0]["text"]),
+        "overall": round(sum(WEIGHTS[k] * v for k, v in scores.items()) * 10.0, 1),
+    }
+
+
 def build_candidates(sentences, min_len, max_len, max_clips):
-    """Seed windows at the highest-scoring sentences, grow to min_len, dedup, sort."""
+    """Seed windows at the highest-scoring sentences, grow to min_len, dedup, sort.
+    Windows always end on a complete sentence (complete-thought rule)."""
     scored = {i: score_sentence(s)[1] for i, s in enumerate(sentences)}
     order = sorted(range(len(sentences)), key=lambda i: scored[i], reverse=True)
     taken = [False] * len(sentences)
     accepted = []
 
-    def span(a, b):
-        return sentences[b]["end"] - sentences[a]["start"]
-
     for seed in order:
         if taken[seed] or len(accepted) >= max_clips:
             continue
-        j = seed
-        while span(seed, j) < min_len and j + 1 < len(sentences) \
-                and not taken[j + 1]:
-            j += 1
-        while span(seed, j) > max_len and j > seed:
-            j -= 1
-        if span(seed, j) < min_len * 0.6:
+        w = _grow_window(sentences, seed, taken, min_len, max_len)
+        if w is None:
             continue
-        win = sentences[seed:j + 1]
-        words = [w for s in win for w in s["words"]]
-        text = " ".join(w["word"] for w in words)
-        scores, _ = score_sentence({"start": win[0]["start"], "end": win[-1]["end"],
-                                    "text": text, "words": words})
-        accepted.append({
-            "start": round(win[0]["start"], 2),
-            "end": round(win[-1]["end"], 2),
-            "hook": make_hook(win[0]["text"]),
-            "overall": round(sum(WEIGHTS[k] * v for k, v in scores.items()) * 10.0, 1),
-        })
-        for k in range(seed, j + 1):
+        a, b = w
+        accepted.append(_make_segment(sentences, a, b))
+        for k in range(a, b + 1):
             taken[k] = True
     accepted.sort(key=lambda s: s["start"])
     return accepted
+
+
+# ----------------------------------------------------------------- search/pick
+
+def search_hits(sentences, query):
+    """Indexes of sentences containing ALL whitespace-separated query tokens
+    (case-insensitive). Empty-token queries match nothing."""
+    tokens = [_norm_token(t) for t in (query or "").split()]
+    tokens = [t for t in tokens if t]
+    if not tokens:
+        return []
+    hits = []
+    for i, s in enumerate(sentences):
+        low = " " + s["text"].lower() + " "
+        if all(t in low for t in tokens):
+            hits.append(i)
+    return hits
+
+
+def search_candidates(sentences, query, min_len, max_len, max_clips):
+    """Build scored clips around every sentence matching `query` (keyword search
+    over the transcript - the feature users call a dealbreaker when missing)."""
+    taken = [False] * len(sentences)
+    accepted = []
+    for seed in search_hits(sentences, query):
+        if taken[seed] or len(accepted) >= max_clips:
+            continue
+        w = _grow_window(sentences, seed, taken, min_len, max_len)
+        if w is None:
+            continue
+        a, b = w
+        accepted.append(_make_segment(sentences, a, b))
+        for k in range(a, b + 1):
+            taken[k] = True
+    accepted.sort(key=lambda s: s["start"])
+    return accepted
+
+
+def pick_segments(segments, spec):
+    """Keep only the given 1-based indexes ('1,3,5') of the start-sorted list -
+    the review workflow: look at the printed table, render just the winners."""
+    if not spec:
+        return segments
+    want = set()
+    for tok in spec.replace(" ", "").split(","):
+        if not tok:
+            continue
+        if not tok.isdigit():
+            raise SystemExit(f"--clips: '{tok}' is not a number (use e.g. --clips 1,3,5)")
+        want.add(int(tok))
+    n = len(segments)
+    bad = sorted(i for i in want if i < 1 or i > n)
+    if bad:
+        raise SystemExit(
+            f"--clips: index(es) {bad} out of range 1..{n} "
+            f"(see the numbered table above)")
+    return [s for i, s in enumerate(segments, 1) if i in want]
+
+
+def print_table(segments):
+    """Numbered candidate table - pairs with --clips for the review workflow."""
+    print("\n  #    start ->      end  score  hook", flush=True)
+    for i, s in enumerate(segments, 1):
+        print(f"  {i:>2}  {s['start']:8.2f} -> {s['end']:8.2f}  {s['overall']:4.1f}/10"
+              f"  {s['hook']}", flush=True)
+    print("  render a subset with --clips 1,3,5", flush=True)
 
 # ------------------------------------------------------------------- ollama
 
@@ -261,10 +365,12 @@ def _nearest(values, t):
 # ----------------------------------------------------------------- run / cli
 
 def run(workdir, llm=None, host=OLLAMA_HOST, min_score=None, max_clips=10,
-        min_len=20, max_len=75):
+        min_len=20, max_len=75, search=None, pick=None):
     """Score the transcript in workdir and write workdir/segments.json.
 
     Returns (segments, mode) where mode is 'ollama' or 'heuristic'.
+    search='keywords' overrides scoring with keyword-search clip finding;
+    pick='1,3,5' keeps only the numbered candidates (review workflow).
     """
     workdir = Path(workdir)
     data = load_transcript(workdir)
@@ -273,7 +379,14 @@ def run(workdir, llm=None, host=OLLAMA_HOST, min_score=None, max_clips=10,
 
     mode = "heuristic"
     segments = None
-    if llm:
+    if search:
+        segments = search_candidates(sentences, search, min_len, max_len, max_clips)
+        if not segments:
+            raise SystemExit(
+                f"--search '{search}': no transcript sentence matched. "
+                "Try fewer or different keywords.")
+        print(f"Keyword search '{search}': {len(segments)} match(es)", flush=True)
+    elif llm:
         ms = min_score if min_score is not None else 8.0
         segments = ollama_select(data, llm, host, ms, max_clips, min_len, max_len)
         if segments is not None:
@@ -288,12 +401,17 @@ def run(workdir, llm=None, host=OLLAMA_HOST, min_score=None, max_clips=10,
               flush=True)
         segments = build_candidates(sentences, min_len, max_len, 1)
 
+    segments = pick_segments(segments, pick)
+    if not segments:
+        if pick:
+            raise SystemExit("Nothing to render: --clips removed every candidate.")
+        raise SystemExit("No usable clips found - the transcript may be too short "
+                         f"for --min-len {min_len}s.")
+
+    print_table(segments)
     out = workdir / "segments.json"
     out.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Wrote {out}  (mode={mode}, {len(segments)} clips)", flush=True)
-    for s in segments:
-        print(f"  [{s['start']:8.2f} -> {s['end']:8.2f}] {s['overall']:4.1f}/10  {s['hook']}",
-              flush=True)
     return segments, mode
 
 
@@ -309,9 +427,15 @@ def main():
     ap.add_argument("--max-clips", type=int, default=10)
     ap.add_argument("--min-len", type=int, default=20, help="min clip seconds")
     ap.add_argument("--max-len", type=int, default=75, help="max clip seconds")
+    ap.add_argument("--search", default=None, metavar="KEYWORDS",
+                    help="skip virality scoring: build clips around transcript "
+                         "sentences containing ALL keywords (e.g. --search \"pricing\")")
+    ap.add_argument("--clips", default=None, metavar="1,3,5",
+                    help="render only these numbered candidates from the table "
+                         "(review workflow)")
     args = ap.parse_args()
     run(args.workdir, args.llm, args.host, args.min_score, args.max_clips,
-        args.min_len, args.max_len)
+        args.min_len, args.max_len, search=args.search, pick=args.clips)
     print("SCORING COMPLETE", flush=True)
 
 

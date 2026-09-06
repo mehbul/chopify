@@ -1,6 +1,7 @@
-"""Chopify test suite - covers all pure (non-ffmpeg) logic."""
+﻿"""Chopify test suite - covers all pure (non-ffmpeg) logic."""
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,6 +13,7 @@ sys.path.insert(0, str(REPO))
 import score_clips          # noqa: E402
 import tighten              # noqa: E402
 import render_clips         # noqa: E402
+import chopify              # noqa: E402
 
 
 # ----------------------------------------------------------------- fixtures
@@ -269,3 +271,173 @@ class TestASS:
         out = tmp_path / "e.ass"
         render_clips.build_ass(w, 0.0, 1.0, out, 1920, 1080, 72, 95)
         assert "{" not in render_clips.ass_escape("{weird}")
+
+
+# ------------------------------------------------------- v1.3: complete-thought
+
+class TestArc:
+    def test_is_arc_complete(self):
+        assert score_clips.is_arc_complete("That is the whole story.")
+        assert score_clips.is_arc_complete('He said "no!"')
+        assert not score_clips.is_arc_complete("walking to the")
+        assert not score_clips.is_arc_complete("")
+
+    def test_candidates_end_on_complete_thought(self, sample_words):
+        sents = score_clips.sentenceize(sample_words)
+        segs = score_clips.build_candidates(sents, min_len=5, max_len=30, max_clips=5)
+        assert segs
+        for seg_ in segs:
+            last = [s for s in sents
+                    if s["end"] <= seg_["end"] + 0.01 and s["end"] > seg_["start"] - 30]
+            assert score_clips.is_arc_complete(last[-1]["text"]), seg_
+
+    def test_grow_window_backs_off_mid_sentence_end(self):
+        # one complete sentence followed by an incomplete tail with no punctuation
+        words = (sentence("Here is the thing nobody tells you about this.", 0.0)
+                 + sentence("and then we were walking to the", 8.0))
+        sents = score_clips.sentenceize(words)
+        taken = [False] * len(sents)
+        w = score_clips._grow_window(sents, 0, taken, min_len=5, max_len=30)
+        assert w is not None
+        a, b = w
+        assert score_clips.is_arc_complete(sents[b]["text"])
+
+
+# ------------------------------------------------------------ v1.3: --search
+
+class TestSearch:
+    def test_search_hits_all_tokens(self, sample_words):
+        sents = score_clips.sentenceize(sample_words)
+        hits = score_clips.search_hits(sents, "biggest mistake")
+        assert len(hits) == 1
+        assert "biggest mistake" in sents[hits[0]]["text"].lower()
+
+    def test_search_hits_all_tokens_required(self, sample_words):
+        sents = score_clips.sentenceize(sample_words)
+        # "secret" and "quitting" never co-occur in one sentence -> no hits
+        assert score_clips.search_hits(sents, "secret quitting") == []
+
+    def test_search_hits_empty_query(self, sample_words):
+        assert score_clips.search_hits(score_clips.sentenceize(sample_words), "") == []
+        assert score_clips.search_hits(score_clips.sentenceize(sample_words), "!!!") == []
+
+    def test_search_candidates_shape(self, sample_words):
+        sents = score_clips.sentenceize(sample_words)
+        segs = score_clips.search_candidates(sents, "biggest mistake",
+                                             min_len=5, max_len=30, max_clips=3)
+        assert len(segs) == 1
+        assert segs[0]["start"] <= sents[3]["start"]
+
+    def test_run_search_writes_segments(self, workdir):
+        segs, mode = score_clips.run(workdir, search="biggest mistake",
+                                     min_len=4, max_len=20)
+        assert mode == "heuristic"
+        assert len(segs) == 1
+        on_disk = json.loads((workdir / "segments.json").read_text())
+        assert len(on_disk) == 1
+
+    def test_run_search_no_match_exits(self, workdir):
+        with pytest.raises(SystemExit):
+            score_clips.run(workdir, search="zzzqqqxyzzy")
+
+
+
+# ------------------------------------------------------------- v1.3: --clips
+
+def seg(start, end, hook, overall=5.0):
+    return {"start": start, "end": end, "hook": hook, "overall": overall}
+
+
+class TestPick:
+    def test_pick_segments_subset(self):
+        segs = [seg(0, 5, "a"), seg(6, 9, "b"), seg(10, 15, "c")]
+        got = score_clips.pick_segments(segs, "1,3")
+        assert [s["hook"] for s in got] == ["a", "c"]
+
+    def test_pick_none_returns_all(self):
+        segs = [seg(0, 5, "a")]
+        assert score_clips.pick_segments(segs, None) is segs
+
+    def test_pick_tolerates_spaces(self):
+        segs = [seg(0, 5, "a"), seg(6, 9, "b")]
+        got = score_clips.pick_segments(segs, "2, 1")
+        assert [s["hook"] for s in got] == ["a", "b"]
+
+    def test_pick_out_of_range_exits(self):
+        with pytest.raises(SystemExit):
+            score_clips.pick_segments([seg(0, 5, "a")], "5")
+
+    def test_pick_non_numeric_exits(self):
+        with pytest.raises(SystemExit):
+            score_clips.pick_segments([seg(0, 5, "a")], "x")
+
+    def test_run_pick_selects_one(self, workdir):
+        segs, _ = score_clips.run(workdir, min_len=4, max_len=20, pick="1")
+        assert len(segs) == 1
+
+    def test_run_pick_out_of_range_exits(self, workdir):
+        with pytest.raises(SystemExit):
+            score_clips.run(workdir, min_len=4, max_len=20, pick="99")
+
+
+class TestPrintTable:
+    def test_table_lists_indexes(self, capsys):
+        score_clips.print_table([seg(0, 5, "alpha hook", 7.2),
+                                 seg(6, 9, "beta hook", 6.1)])
+        out = capsys.readouterr().out
+        assert "alpha hook" in out and "7.2/10" in out
+
+
+
+# --------------------------------------------------------- v1.3: --preview
+
+class TestPreview:
+    def test_preview_dims(self):
+        assert render_clips.PREVIEW["16:9"] == (854, 480)
+        assert render_clips.PREVIEW["9:16"] == (480, 854)
+        assert render_clips.PREVIEW["1:1"] == (480, 480)
+
+    def test_preview_dims_match_aspect(self):
+        for a, (tw, th) in render_clips.PREVIEW.items():
+            fw, fh = render_clips.ASPECTS[a][:2]
+            assert abs(tw / th - fw / fh) < 0.02
+
+
+# ------------------------------------------------------- v1.3: preflight
+
+class TestPreflight:
+    def test_missing_ffmpeg_flagged(self, monkeypatch):
+        monkeypatch.setattr(chopify.shutil, "which", lambda t: None)
+        monkeypatch.setattr(chopify, "_missing_modules", lambda: [])
+        problems = chopify.check_environment()
+        assert any("ffmpeg" in p for p in problems)
+        assert any("ffprobe" in p for p in problems)
+
+    def test_missing_libx264_flagged(self, monkeypatch):
+        monkeypatch.setattr(chopify.shutil, "which",
+                            lambda t: "C:/bin/ffmpeg.exe" if t == "ffmpeg"
+                            else "C:/bin/ffprobe.exe")
+        monkeypatch.setattr(chopify, "_missing_modules", lambda: [])
+        fake = subprocess.CompletedProcess([], 0, stdout=" V mp4v ... A pcm_s16le")
+        problems = chopify.check_environment(runner=lambda cmd, **k: fake)
+        assert any("libx264" in p for p in problems)
+        assert any("AAC" in p for p in problems)
+
+    def test_clean_environment_passes(self, monkeypatch):
+        monkeypatch.setattr(chopify.shutil, "which", lambda t: "C:/bin/" + t)
+        monkeypatch.setattr(chopify, "_missing_modules", lambda: [])
+        fake = subprocess.CompletedProcess(
+            [], 0, stdout=" V libx264 x264 ... A aac AAC (audio)")
+        assert chopify.check_environment(runner=lambda cmd, **k: fake) == []
+
+    def test_missing_module_flagged(self, monkeypatch):
+        monkeypatch.setattr(chopify.shutil, "which", lambda t: "C:/bin/" + t)
+        monkeypatch.setattr(chopify, "_missing_modules",
+                            lambda: [("faster_whisper",
+                                      "pip install -r requirements.txt")])
+        fake = subprocess.CompletedProcess([], 0, stdout=" V libx264 ... A aac AAC")
+        problems = chopify.check_environment(runner=lambda cmd, **k: fake)
+        assert len(problems) == 1
+        assert "faster_whisper" in problems[0]
+        assert "pip install" in problems[0]
+
