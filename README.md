@@ -18,7 +18,7 @@
 **Chopify is a free, open-source, fully local alternative to Opus Clip, Vizard, Klap, 2Short and Submagic.** It automatically turns long videos &#8212; YouTube videos, podcasts, interviews and webinars &#8212; into short, ready-to-post viral clips in **16:9, 9:16 (vertical) or 1:1**, with AI virality scoring, automatic face-tracking reframe, and burnt-in word-by-word captions. Everything runs **100% on your own machine**: no subscription, no cloud upload, and no API keys.
 
 > [!TIP]
-> **New in v1.1** &#8212; output is now **16:9 full-frame by default** (the whole screen, no crop). Add `--aspect 9:16` for vertical or `--aspect 1:1` for square, and **every clip auto-saves a PNG poster** next to the `.mp4`.
+> **New in v1.2** &#8212; **one command does everything**: `python chopify.py "URL"`. Clip picking is now **built in** (deterministic heuristic, or a local Ollama model via `--llm`) &#8212; no external LLM agent needed. Plus: `--tighten` removes "um"s and dead air, `--style hormozi/mrbeast/podcast` caption presets, `--loudnorm` broadcast loudness, `.meta.json` ready-to-post metadata per clip, and the output folder is finally configurable (`--out`, default `./clips`).
 
 ## Demo
 
@@ -32,12 +32,14 @@
 
 ## Features
 
-- **AI virality scoring** &#8212; every segment is rated on hook, shock, humour, controversy, insight, emotion, energy and complete-arc; only **8+/10** clips are kept.
-- **Local transcription** &#8212; faster-whisper with word-level timestamps. Nothing leaves your PC.
+- **One command** &#8212; `python chopify.py "<link>"` runs the whole pipeline: download &#8594; transcribe &#8594; score &#8594; render.
+- **Built-in AI virality scoring &#8212; no API keys** &#8212; every segment is rated on hook, shock, humour, controversy, insight, emotion, energy and complete-arc. A deterministic heuristic runs out of the box; add `--llm` to use a **local Ollama model** instead. Nothing is ever sent to the cloud.
+- **Tighten cuts** (`--tighten`) &#8212; filler words ("um", "uh", "you know") and long silences are removed automatically, with captions re-timed to match.
+- **Caption style presets** &#8212; `default`, `hormozi` (red highlight), `mrbeast` (green), `podcast` (clean) &#8212; word-by-word, burnt in with ffmpeg.
+- **Ready-to-post metadata** &#8212; every clip ships with a `.meta.json` (title, description, hashtags) plus a PNG poster thumbnail.
 - **Multi-format output** &#8212; 16:9 (default, full frame), 9:16 (speaker-tracking auto-reframe via OpenCV YuNet, snap-on-cut + edge guard), or 1:1.
-- **PNG poster per clip** &#8212; a ready thumbnail saved next to every clip.
-- **Word-by-word captions** &#8212; bold CapCut style, burnt in with ffmpeg.
-- **Zero paid APIs, zero cloud** &#8212; yt-dlp + faster-whisper + ffmpeg + OpenCV.
+- **Loudness normalization** (`--loudnorm`) &#8212; broadcast-standard -14 LUFS audio.
+- **Zero paid APIs, zero cloud** &#8212; yt-dlp + faster-whisper + ffmpeg + OpenCV, all local.
 - **Content decides the count** &#8212; a 1-hour video might yield 2 clips or 20.
 
 ## Chopify vs. the paid tools
@@ -73,26 +75,44 @@ python -m venv .venv
 
 ## Usage
 
+**One command &#8212; link in, clips out:**
+
+```bash
+python chopify.py "https://youtube.com/watch?v=VIDEO_ID"
+python chopify.py "URL" --aspect 9:16 --style hormozi --tighten --loudnorm
+python chopify.py "URL" --llm qwen2.5:7b          # local Ollama picks the clips
+```
+
+**Or run the stages individually:**
+
 **1. Download + transcribe** &#8594; writes `work/transcript.json`:
 
 ```bash
-.venv\Scripts\python download_and_transcribe.py "<YOUTUBE_URL>"
+python download_and_transcribe.py "<YOUTUBE_URL>"
 ```
 
-**2. Score** &#8594; write `work/segments.json` with the segments to clip:
-
-```json
-{ "start": 134.2, "end": 187.6, "hook": "short title for the filename", "overall": 8.4 }
-```
-
-Scoring reads `transcript.json` and rates segments on the eight criteria above. In the
-reference setup an LLM agent does this in-loop (zero API cost); score it however you like.
-
-**3. Render** &#8594; cut + reframe (16:9 default; `--aspect 9:16` / `1:1`) + burnt captions + a `.png` poster &#8594; `C:\clips`:
+**2. Score** &#8594; writes `work/segments.json`:
 
 ```bash
-.venv\Scripts\python render_clips.py work
+python score_clips.py work                        # built-in heuristic, zero deps
+python score_clips.py work --llm qwen2.5:7b       # local Ollama (JSON mode)
+python score_clips.py work --min-score 7 --max-clips 12
 ```
+
+Each segment: `{"start": 134.2, "end": 187.6, "hook": "short title", "overall": 8.4}`.
+The heuristic scorer rates windows on the eight criteria (hook, shock, humour,
+controversy, insight, emotion, energy, complete-arc) and keeps clips at/above
+6.5 by default. With `--llm`, a local Ollama model does the picking in strict
+JSON mode and falls back to the heuristic automatically if Ollama is missing.
+Prefer an LLM agent? The JSON format above is all it needs.
+
+**3. Render** &#8594; cut + reframe + burnt captions + poster + `.meta.json`:
+
+```bash
+python render_clips.py work --aspect 9:16 --style default --tighten
+```
+
+Output lands in `./clips` by default &#8212; change with `--out DIR` or `$CHOPIFY_OUT`.
 
 ## FAQ
 
@@ -109,7 +129,10 @@ Yes. Download, transcription, scoring and rendering all happen on your machine. 
 16:9 (landscape, default), 9:16 (vertical for TikTok, Reels and YouTube Shorts) and 1:1 (square). Each clip also gets a PNG poster.
 
 **Do I need an OpenAI, Gemini or other paid API key?**
-No. Chopify uses only open-source tools: yt-dlp, faster-whisper, ffmpeg and OpenCV.
+No. Chopify uses only open-source tools: yt-dlp, faster-whisper, ffmpeg and OpenCV. Clip selection runs on a built-in heuristic scorer, or on a **local** Ollama model with `--llm` &#8212; never a cloud API.
+
+**How does chopify decide which moments become clips?**
+Every transcript window is rated 0&#8211;10 on hook, shock, humour, controversy, insight, emotion, energy and complete-arc. By default a deterministic heuristic does this instantly and offline; `--llm qwen2.5:7b` hands the job to a local Ollama model for context-aware selection.
 
 **What is it good for?**
 Repurposing podcasts, interviews, webinars, lectures and long YouTube videos into short-form clips for TikTok, Instagram Reels and YouTube Shorts.
@@ -120,6 +143,8 @@ Repurposing podcasts, interviews, webinars, lectures and long YouTube videos int
   (whisper.cpp + Vulkan was attempted for AMD but is unstable on RDNA3 &#8212; crashes or
   returns corrupted output).
 - **Captions** use a built-in ffmpeg ASS renderer (the PyPI `pycaps` is an empty stub).
-- Output folder is `C:\clips` &#8212; change `OUT_DIR` in `render_clips.py`.
+- **Output folder:** `./clips` by default &#8212; change with `--out DIR` or `$CHOPIFY_OUT`.
+- **Ollama is optional.** The built-in heuristic needs no LLM at all; `--llm` simply
+  upgrades clip selection if you have [Ollama](https://ollama.com) installed locally.
 
 <sub>Personal / educational use &#8212; you are responsible for the rights to any video you process.</sub>

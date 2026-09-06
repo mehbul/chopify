@@ -1,23 +1,31 @@
 """
-Stage 2 of the viral-clip pipeline.
+Stage 3 of the viral-clip pipeline.
 
 Renders scored segments to clips in a chosen aspect ratio:
   - 16:9 (default) -> landscape, full frame kept
   - 9:16           -> vertical, dynamic speaker-tracking crop (YuNet + snap-on-cut)
   - 1:1            -> square
-Captions are word-by-word CapCut style, burnt in via the ffmpeg ASS engine.
+Captions are word-by-word CapCut style, burnt in via the ffmpeg ASS engine,
+with selectable style presets. Optional --tighten removes filler words and
+long silences (captions are re-timed automatically). Every clip gets a PNG
+poster and a .meta.json with a ready-to-post title, description and hashtags.
 
 No external/paid APIs. ffmpeg + OpenCV only. Usage:
     python render_clips.py [workdir] [--aspect 16:9|9:16|1:1]
+                           [--out DIR] [--style default|hormozi|mrbeast|podcast]
+                           [--tighten]
+Output directory (default ./clips) can also be set with $CHOPIFY_OUT.
 """
 import sys
+import os
 import re
 import json
 import argparse
 import subprocess
 from pathlib import Path
 
-OUT_DIR = Path(r"C:\clips")
+import tighten  # local module: filler/silence removal
+
 # aspect -> (target_w, target_h, caption_font_size, caption_margin_v)
 ASPECTS = {
     "16:9": (1920, 1080, 72, 95),
@@ -25,10 +33,29 @@ ASPECTS = {
     "1:1":  (1080, 1080, 82, 120),
 }
 DEFAULT_ASPECT = "16:9"
-FONT = "Arial Black"
+
+# Caption presets: ASS &HAABBGGRR colours (yellow highlight = &H0000FFFF&).
+CAPTION_STYLES = {
+    "default":  {"font": "Arial Black", "weight": -1, "highlight": "&H00FFFF&"},
+    "hormozi":  {"font": "Arial Black", "weight": -1, "highlight": "&H0000FF&"},
+    "mrbeast":  {"font": "Arial Black", "weight": -1, "highlight": "&H00FF00&"},
+    "podcast":  {"font": "Arial",       "weight": 0,  "highlight": "&H00FFFF&"},
+}
+DEFAULT_STYLE = "default"
+
+
+def default_out():
+    """Output dir: --out wins, then $CHOPIFY_OUT, then ./clips (no more hardcoded C:\\clips)."""
+    return Path(os.environ.get("CHOPIFY_OUT") or "clips")
+
+
+def get_style(name):
+    if name not in CAPTION_STYLES:
+        raise SystemExit(f"Unknown caption style '{name}'. "
+                         f"Choose from: {', '.join(CAPTION_STYLES)}")
+    return CAPTION_STYLES[name]
+
 WORDS_PER_LINE = 3
-WHITE = r"{\c&HFFFFFF&}"
-HIGHLIGHT = r"{\c&H00FFFF&}"
 DET_FPS = 5
 DET_W = 640
 EMA_ALPHA = 0.20
@@ -194,7 +221,9 @@ def ass_escape(s):
     return s.replace("\\", "").replace("{", "(").replace("}", ")")
 
 
-def build_ass(words, clip_start, clip_end, path, tw, th, font_size, margin_v):
+def build_ass(words, clip_start, clip_end, path, tw, th, font_size, margin_v,
+              style_name=DEFAULT_STYLE):
+    st = get_style(style_name)
     sub = [w for w in words if w["end"] > clip_start and w["start"] < clip_end]
     header = (
         "[Script Info]\nScriptType: v4.00+\n"
@@ -204,42 +233,76 @@ def build_ass(words, clip_start, clip_end, path, tw, th, font_size, margin_v):
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, "
         "ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
         "MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Cap,{FONT},{font_size},&H00FFFFFF,&H000000FF,&H00000000,"
-        f"&H64000000,-1,0,0,0,100,100,0,0,1,5,2,2,80,80,{margin_v},1\n\n"
+        f"Style: Cap,{st['font']},{font_size},&H00FFFFFF,&H000000FF,&H00000000,"
+        f"&H64000000,{st['weight']},0,0,0,100,100,0,0,1,5,2,2,80,80,{margin_v},1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
         "Effect, Text\n"
     )
     groups = [sub[i:i + WORDS_PER_LINE] for i in range(0, len(sub), WORDS_PER_LINE)]
     events = []
+    hl = r"{\c" + st["highlight"] + "}"
+    white = r"{\c&HFFFFFF&}"
     for g in groups:
         for i, w in enumerate(g):
-            st = max(w["start"], clip_start) - clip_start
+            s0 = max(w["start"], clip_start) - clip_start
             en = (g[i + 1]["start"] - clip_start) if i + 1 < len(g) \
                 else (w["end"] - clip_start)
-            if en <= st:
-                en = st + 0.12
+            if en <= s0:
+                en = s0 + 0.12
             parts = []
             for j, ww in enumerate(g):
                 token = ass_escape(ww["word"].strip())
-                parts.append((HIGHLIGHT + token + WHITE) if j == i else (WHITE + token))
+                parts.append((hl + token + white) if j == i else (white + token))
             events.append(
-                f"Dialogue: 0,{ass_time(st)},{ass_time(en)},Cap,,0,0,0,,{' '.join(parts)}")
+                f"Dialogue: 0,{ass_time(s0)},{ass_time(en)},Cap,,0,0,0,,{' '.join(parts)}")
     Path(path).write_text(header + "\n".join(events) + "\n", encoding="utf-8")
 
 
-def render(seg, words, source, W, H, workdir, aspect):
+def write_meta(seg, out_path):
+    """Deterministic ready-to-post metadata saved as <clip>.meta.json."""
+    hook = str(seg.get("hook", "clip")).replace("-", " ").strip()
+    title = hook.capitalize()
+    meta = {
+        "title": f"{title} #shorts",
+        "description": (f"{hook.capitalize()} - full video on the channel.\n"
+                        "#shorts #reels #fyp #viral #podcast"),
+        "hashtags": ["#shorts", "#reels", "#fyp", "#viral"],
+        "score": seg.get("overall"),
+        "start": seg.get("start"),
+        "end": seg.get("end"),
+    }
+    Path(out_path).with_suffix(".meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return Path(out_path).with_suffix(".meta.json")
+
+
+def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAULT_STYLE,
+           do_tighten=False, loudnorm=False):
+    out_dir = Path(out_dir) if out_dir else default_out()
     tw, th, font_size, margin_v = ASPECTS[aspect]
     start = float(seg["start"])
     end = float(seg["end"])
     dur = end - start
     cw, ch, x0, y0 = crop_for(W, H, tw, th)
-    build_ass(words, start, end, OUT_DIR / "_caption.ass", tw, th, font_size, margin_v)
+
+    cap_words = words
+    render_src = source
+    if do_tighten:
+        keeps = tighten.plan_cuts(words, start, end)
+        render_src = out_dir / "_tight_source.mp4"
+        tighten.apply_cuts(source, keeps, start, render_src)
+        cap_words, dur = tighten.remap_words(words, start, keeps)
+        print(f"  tightened: {len(keeps)} keep-ranges, "
+              f"{(end - start) - dur:.1f}s removed", flush=True)
+        start = 0.0
+    build_ass(cap_words, start, start + dur, out_dir / "_caption.ass",
+              tw, th, font_size, margin_v, style)
 
     needs_track = cw < W * 0.95          # real horizontal crop -> track the speaker
     if needs_track:
-        track = smooth_track(detect_track(source, start, dur, W, workdir), W, cw)
-        build_sendcmd(track, cw, OUT_DIR / "_crop.cmd")
+        track = smooth_track(detect_track(render_src, start, dur, W, workdir), W, cw)
+        build_sendcmd(track, cw, out_dir / "_crop.cmd")
         init_x = max(0, min(int(round(track[0][1] - cw / 2.0)), W - cw))
         vf = (f"sendcmd=f=_crop.cmd,crop={cw}:{ch}:{init_x}:{y0},"
               f"scale={tw}:{th},subtitles=_caption.ass")
@@ -248,21 +311,38 @@ def render(seg, words, source, W, H, workdir, aspect):
         vf = f"crop={cw}:{ch}:{x0}:{y0},scale={tw}:{th},subtitles=_caption.ass"
         mode = "full-frame"
 
-    out = OUT_DIR / (sanitize(seg.get("hook", "clip")) + ".mp4")
-    cmd = ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", str(source),
+    out = out_dir / (sanitize(seg.get("hook", "clip")) + ".mp4")
+    cmd = ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", str(render_src),
            "-t", f"{dur:.3f}", "-vf", vf,
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
            "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out)]
+    if loudnorm:
+        cmd[cmd.index("-c:v"):cmd.index("-c:v")] = [
+            "-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
     print(">", " ".join(cmd), flush=True)
-    subprocess.run(cmd, check=True, cwd=str(OUT_DIR))
+    subprocess.run(cmd, check=True, cwd=str(out_dir))
+
+    for tmpf in (out_dir / "_caption.ass", out_dir / "_crop.cmd"):
+        try:
+            tmpf.unlink()
+        except OSError:
+            pass
+
+    if do_tighten:
+        try:
+            render_src.unlink()
+        except OSError:
+            pass
 
     # poster: a representative still saved next to the clip (<clip>.png)
     poster = out.with_suffix(".png")
     subprocess.run(["ffmpeg", "-y", "-ss", f"{dur * 0.4:.2f}", "-i", str(out),
                     "-frames:v", "1", "-q:v", "2", str(poster)],
                    check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    meta_path = write_meta(seg, out)
 
-    print(f"SAVED {out}  ({aspect} {tw}x{th}, {mode})  + poster {poster.name}", flush=True)
+    print(f"SAVED {out}  ({aspect} {tw}x{th}, {mode})  "
+          f"+ poster {poster.name} + {meta_path.name}", flush=True)
     return out
 
 
@@ -271,13 +351,22 @@ def main():
     ap.add_argument("workdir", nargs="?", default="work")
     ap.add_argument("--aspect", default=DEFAULT_ASPECT, choices=list(ASPECTS),
                     help="output aspect ratio (default 16:9)")
+    ap.add_argument("--out", default=None,
+                    help="output directory (default ./clips, or $CHOPIFY_OUT)")
+    ap.add_argument("--style", default=DEFAULT_STYLE,
+                    help="caption preset: " + ", ".join(CAPTION_STYLES))
+    ap.add_argument("--tighten", action="store_true",
+                    help="remove filler words (um, uh...) and long silences")
+    ap.add_argument("--loudnorm", action="store_true",
+                    help="normalize audio to -14 LUFS (platform standard)")
     args = ap.parse_args()
 
     workdir = Path(args.workdir).resolve()
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = Path(args.out) if args.out else default_out()
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    transcript = json.loads((workdir / "transcript.json").read_text(encoding="utf-8"))
-    segments = json.loads((workdir / "segments.json").read_text(encoding="utf-8"))
+    transcript = json.loads((workdir / "transcript.json").read_text(encoding="utf-8-sig"))
+    segments = json.loads((workdir / "segments.json").read_text(encoding="utf-8-sig"))
     words = transcript["words"]
 
     source = Path(transcript["video"])
@@ -287,7 +376,8 @@ def main():
     source = source.resolve()
 
     W, H = ffprobe_dims(source)
-    print(f"Source {source} {W}x{H}; {len(segments)} clips -> {args.aspect}", flush=True)
+    print(f"Source {source} {W}x{H}; {len(segments)} clips -> {args.aspect} "
+          f"(style={args.style}, tighten={args.tighten}) -> {out_dir}", flush=True)
 
     saved = []
     for i, seg in enumerate(segments, 1):
@@ -295,7 +385,9 @@ def main():
               f"{seg.get('hook', '')[:60]!r} (overall {seg.get('overall')}) ---",
               flush=True)
         try:
-            saved.append(str(render(seg, words, source, W, H, workdir, args.aspect)))
+            saved.append(str(render(seg, words, source, W, H, workdir, args.aspect,
+                                    out_dir=out_dir, style=args.style,
+                                    do_tighten=args.tighten, loudnorm=args.loudnorm)))
         except subprocess.CalledProcessError as e:
             print(f"ERROR rendering clip {i}: {e}", flush=True)
 
