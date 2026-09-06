@@ -13,7 +13,7 @@ poster and a .meta.json with a ready-to-post title, description and hashtags.
 No external/paid APIs. ffmpeg + OpenCV only. Usage:
     python render_clips.py [workdir] [--aspect 16:9|9:16|1:1]
                            [--out DIR] [--style default|hormozi|mrbeast|podcast]
-                           [--tighten]
+                           [--tighten] [--loudnorm] [--preview]
 Output directory (default ./clips) can also be set with $CHOPIFY_OUT.
 """
 import sys
@@ -33,6 +33,14 @@ ASPECTS = {
     "1:1":  (1080, 1080, 82, 120),
 }
 DEFAULT_ASPECT = "16:9"
+
+# --preview drafts: small, fast, no poster/meta. Caption font/margins scale down
+# proportionally from the full-size ASPECTS values (height is the anchor).
+PREVIEW = {
+    "16:9": (854, 480),
+    "9:16": (480, 854),
+    "1:1":  (480, 480),
+}
 
 # Caption presets: ASS &HAABBGGRR colours (yellow highlight = &H0000FFFF&).
 CAPTION_STYLES = {
@@ -278,9 +286,17 @@ def write_meta(seg, out_path):
 
 
 def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAULT_STYLE,
-           do_tighten=False, loudnorm=False):
+           do_tighten=False, loudnorm=False, preview=False):
     out_dir = Path(out_dir) if out_dir else default_out()
-    tw, th, font_size, margin_v = ASPECTS[aspect]
+    full_w, full_h, font_size, margin_v = ASPECTS[aspect]
+    if preview:
+        # fast 480p-class draft: smaller frame, smaller captions, no poster/meta
+        tw, th = PREVIEW[aspect]
+        scale = th / float(full_h)
+        font_size = max(12, round(font_size * scale))
+        margin_v = max(10, round(margin_v * scale))
+    else:
+        tw, th = full_w, full_h
     start = float(seg["start"])
     end = float(seg["end"])
     dur = end - start
@@ -311,7 +327,8 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
         vf = f"crop={cw}:{ch}:{x0}:{y0},scale={tw}:{th},subtitles=_caption.ass"
         mode = "full-frame"
 
-    out = out_dir / (sanitize(seg.get("hook", "clip")) + ".mp4")
+    suffix = ".preview" if preview else ""
+    out = out_dir / (sanitize(seg.get("hook", "clip")) + suffix + ".mp4")
     cmd = ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", str(render_src),
            "-t", f"{dur:.3f}", "-vf", vf,
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
@@ -333,6 +350,11 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
             render_src.unlink()
         except OSError:
             pass
+
+    if preview:
+        # drafts skip the poster and metadata - they exist to be eyeballed fast
+        print(f"SAVED {out}  ({aspect} {tw}x{th} preview, {mode})", flush=True)
+        return out
 
     # poster: a representative still saved next to the clip (<clip>.png)
     poster = out.with_suffix(".png")
@@ -359,6 +381,9 @@ def main():
                     help="remove filler words (um, uh...) and long silences")
     ap.add_argument("--loudnorm", action="store_true",
                     help="normalize audio to -14 LUFS (platform standard)")
+    ap.add_argument("--preview", action="store_true",
+                    help="render fast 480p drafts (no poster/meta) to review "
+                         "clip selection before the full render")
     args = ap.parse_args()
 
     workdir = Path(args.workdir).resolve()
@@ -387,7 +412,8 @@ def main():
         try:
             saved.append(str(render(seg, words, source, W, H, workdir, args.aspect,
                                     out_dir=out_dir, style=args.style,
-                                    do_tighten=args.tighten, loudnorm=args.loudnorm)))
+                                    do_tighten=args.tighten, loudnorm=args.loudnorm,
+                                    preview=args.preview)))
         except subprocess.CalledProcessError as e:
             print(f"ERROR rendering clip {i}: {e}", flush=True)
 

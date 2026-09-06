@@ -7,11 +7,17 @@
 - Downloads a video with yt-dlp (highest quality)
 - Transcribes locally with faster-whisper (word-level timestamps)
 - Scores transcript windows for virality (hook, shock, humour, controversy, insight, emotion, energy, complete-arc) using a built-in deterministic heuristic; optionally a local Ollama model with `--llm`
+- Clips always end on a complete sentence (terminal punctuation) - never mid-thought
+- Search the transcript for keywords and clip around matches with `--search "pricing"` (bypasses virality scoring)
+- Review workflow: prints a numbered candidate table, render only chosen clips with `--clips 1,3,5`
+- Preview fast 480p drafts with `--preview` (no poster/meta) before the full render
+- Pre-flight environment check reports missing ffmpeg/libx264/aac or Python packages with fix hints (bypass with `--no-preflight`)
 - Optionally tightens clips: removes filler words and long silences with `--tighten` (captions re-timed automatically)
 - Cuts clips with ffmpeg and reframes to 16:9, 9:16 or 1:1 (OpenCV YuNet face-tracking for vertical)
 - Burns in word-by-word CapCut-style captions with style presets (default / hormozi / mrbeast / podcast) and optional -14 LUFS loudness normalization (`--loudnorm`)
 - Exports each clip as an MP4 plus a PNG poster and a `.meta.json` with ready-to-post title, description and hashtags
 - Writes output to `./clips` by default (configurable via `--out` or `$CHOPIFY_OUT`)
+- Output is always H.264/AAC (verified playable everywhere, never the unplayable mp4v codec)
 
 ## Key facts
 - License: MIT (open source)
