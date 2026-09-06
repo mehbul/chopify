@@ -15,7 +15,7 @@
 
 ---
 
-**Chopify is a free, open-source, fully local alternative to Opus Clip, Vizard, Klap, 2Short and Submagic.** It automatically turns long videos &#8212; YouTube videos, podcasts, interviews and webinars &#8212; into short, ready-to-post viral clips in **16:9, 9:16 (vertical) or 1:1**, with AI virality scoring, automatic face-tracking reframe, and burnt-in word-by-word captions. Everything runs **100% on your own machine**: no subscription, no cloud upload, and no API keys.
+**Chopify is a free, open-source, fully-local alternative to Opus Clip, Vizard, Klap, 2Short.ai, Submagic and other paid AI video clippers.** It automatically turns long videos — YouTube videos, podcasts, interviews, webinars and lectures — into short, ready-to-post viral clips for TikTok, Instagram Reels and YouTube Shorts, in **16:9, 9:16 (vertical) or 1:1**, with AI virality scoring, automatic face-tracking reframe, and burnt-in word-by-word captions. Everything runs **100% on your own machine**: no subscription, no cloud upload, no API keys, no per-clip credits, and no watermarks.
 
 > [!TIP]
 > **New in v1.3** &#8212; **clips that actually end on a complete thought** (the #1 gripe with AI clippers), plus a **review workflow**: a numbered candidate table lets you **render only the clips you want** (`--clips 1,3,5`). **Keyword search** (`--search "pricing"`) skips virality scoring and clips straight to a topic. **Preview drafts** (`--preview`) render fast 480p cuts first. And a **pre-flight check** now catches missing ffmpeg / libx264 / packages before the pipeline runs, with fix hints.
@@ -47,7 +47,7 @@
 - **Zero paid APIs, zero cloud** &#8212; yt-dlp + faster-whisper + ffmpeg + OpenCV, all local.
 - **Content decides the count** &#8212; a 1-hour video might yield 2 clips or 20.
 
-## Chopify vs. the paid tools
+## Chopify vs Opus Clip, Vizard, Klap and other paid tools
 
 Chopify does the core of what these subscription products do &#8212; **AI-scored clips, auto-reframe to 9:16, and burnt word-by-word captions** &#8212; except it runs **free, on your own machine, and fully open-source**.
 
@@ -129,8 +129,26 @@ Output lands in `./clips` by default &#8212; change with `--out DIR` or `$CHOPIF
 
 ## FAQ
 
+**What is Chopify?**
+Chopify is a free, open-source command-line tool that turns long videos into short, captioned viral clips locally on your machine. You give it a YouTube link (or any video URL); it downloads the video, transcribes it with AI, scores each moment for virality, and exports the best clips ready for TikTok, Reels, or YouTube Shorts.
+
 **Is there a free alternative to Opus Clip?**
-Yes &#8212; Chopify is a free, open-source, self-hosted alternative to Opus Clip, Vizard and Klap. It runs entirely on your own computer, with no subscription and no API keys.
+Yes — Chopify is a free, open-source, self-hosted alternative to Opus Clip, Vizard and Klap. It runs entirely on your own computer, with no subscription and no API keys.
+
+**Is Opus Clip free / does Opus Clip cost money?**
+Opus Clip is a paid subscription service. If you want the same core features (AI-scored clips, auto-reframe to 9:16, word-by-word captions) for free, Chopify is the open-source alternative — it runs locally with no subscription and no per-clip credits.
+
+**How do I convert long videos to shorts for free?**
+Chopify does this in one command: `python chopify.py "https://youtube.com/watch?v=..."`. It transcribes the video, scores moments for virality, and exports the best ones as shorts. Add `--aspect 9:16` for vertical TikTok/Reels format, or `--search "topic"` to clip around specific keywords.
+
+**Can I use Chopify without an API key?**
+Yes. Everything runs locally with zero API keys. The built-in virality scorer needs no LLM at all. An optional local Ollama model (`--llm`) can upgrade clip selection, but nothing is ever sent to the cloud.
+
+**How is Chopify different from Vizard / Klap / Submagic?**
+Those are paid cloud services that upload your video to their servers. Chopify runs 100% locally on your machine — your video never leaves your PC, there is no subscription, and there are no watermarks or clip limits.
+
+**Can I turn a podcast into TikTok clips?**
+Yes. Chopify is built for exactly this: drop in a long podcast or interview, and it finds the most viral moments, adds word-by-word captions, and exports them ready for TikTok, Reels, or Shorts. Use `--tighten` to automatically remove filler words ("um", "uh", dead air).
 
 **Can I turn long videos into short clips without paying?**
 Yes. Chopify downloads a video, transcribes it locally, AI-scores every segment for virality, and exports the best moments as ready-to-post clips &#8212; for free.
