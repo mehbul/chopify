@@ -1,190 +1,135 @@
-<p align="center">
-  <img src="assets/banner.svg" alt="Chopify" width="880">
-</p>
+<p align="center"><img src="assets/banner.svg" alt="Chopify — local video clipping and captions" width="880"></p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white" alt="Python">
-  <img src="https://img.shields.io/badge/100%25-Local-08d9d6" alt="Local">
-  <img src="https://img.shields.io/badge/Paid_APIs-zero-ff2e63" alt="No paid APIs">
-  <img src="https://img.shields.io/badge/ffmpeg-powered-007808?logo=ffmpeg&logoColor=white" alt="ffmpeg">
-  <img src="https://img.shields.io/badge/OpenCV-YuNet-5C3EE8?logo=opencv&logoColor=white" alt="OpenCV">
-  <img src="https://img.shields.io/badge/Windows-11-0078D6?logo=windows&logoColor=white" alt="Windows">
-</p>
+# Chopify — free, local AI video clipper
 
-<p align="center"><b>Drop in a YouTube link &#8594; get back scored, captioned clips (16:9 or 9:16) &#8212; 100% on your own machine.</b></p>
+**Turn long videos into captioned clips for YouTube Shorts, Instagram Reels, and TikTok, on your own computer.** Chopify is an open-source Python app with a local browser dashboard and a CLI. Import a recording or a video URL, find moments, correct captions, review drafts, and export MP4 clips with SRT subtitles. No subscription, API key, cloud upload, or watermark.
 
----
+[Get started](#install-and-open-the-dashboard) · [Workflow guide](docs/WORKFLOWS.md) · [Agent/API reference](docs/AGENT-API.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Changelog](CHANGELOG.md)
 
-**Chopify is a free, open-source, fully-local alternative to Opus Clip, Vizard, Klap, 2Short.ai, Submagic and other paid AI video clippers.** It automatically turns long videos — YouTube videos, podcasts, interviews, webinars and lectures — into short, ready-to-post viral clips for TikTok, Instagram Reels and YouTube Shorts, in **16:9, 9:16 (vertical) or 1:1**, with AI virality scoring, automatic face-tracking reframe, and burnt-in word-by-word captions. Everything runs **100% on your own machine**: no subscription, no cloud upload, no API keys, no per-clip credits, and no watermarks.
+## What can Chopify do?
 
-> [!TIP]
-> **New in v1.3** &#8212; **clips that actually end on a complete thought** (the #1 gripe with AI clippers), plus a **review workflow**: a numbered candidate table lets you **render only the clips you want** (`--clips 1,3,5`). **Keyword search** (`--search "pricing"`) skips virality scoring and clips straight to a topic. **Preview drafts** (`--preview`) render fast 480p cuts first. And a **pre-flight check** now catches missing ffmpeg / libx264 / packages before the pipeline runs, with fix hints.
+| Feature | How it helps |
+| --- | --- |
+| **Local browser dashboard** | Queue videos, watch job progress, review candidates, edit words and timestamps, and download exports. |
+| **Local video input** | Use MP4, MOV, MKV, WebM, M4V, or AVI recordings directly, or download a yt-dlp-supported URL. |
+| **Resumable projects** | Reuse matching downloads, transcripts, and completed renders. Retry a failed job without discarding successful clips. |
+| **Batch queue** | Add one source per line in Studio or use a JSON list in the CLI. Each video has an isolated project folder. |
+| **Caption editor and SRT export** | Fix transcription mistakes before rendering. Burnt captions and SRT files share the same timeline, including tightened cuts. |
+| **Reusable brand presets** | Save caption font, text/highlight colors, size, position, and an optional logo in JSON. |
+| **Semantic clip search** | Search for a concept such as “handling rejection” using optional local Ollama embeddings, even if those exact words are absent. |
+| **Podcast split-screen** | Stack two adjustable horizontal crops in a vertical clip for fixed-camera two-person footage. |
+| **Clip selection and review** | Heuristic scoring, optional local LLM scoring, keyword search, numbered selection, editable start/end times, and fast draft previews. |
+| **Social video exports** | 16:9, 9:16, or 1:1; H.264 video, AAC when source audio exists; SRT, poster, title/description/hashtag JSON. |
+| **Face tracking and cleanup** | Single-frame vertical crops follow a detected face; optional filler/silence removal and audio loudness normalization. |
 
-## Demo
+Clip selection favors sentence endings with punctuation. Scores are editing suggestions, **not predictions or guarantees of virality**. Review the results before publishing.
 
-<p align="center"><img src="assets/demo.gif" alt="16:9 clip with burnt word-by-word captions" width="640"></p>
+## Install and open the dashboard
 
-## How it works
+Windows is the primary target. Use **Python 3.11+** and **ffmpeg/ffprobe with libx264, AAC, and subtitle rendering support**. Linux CI also checks the Python and ffmpeg workflows.
 
-<p align="center">
-  <img src="assets/pipeline.svg" alt="Pipeline" width="980">
-</p>
-
-## Features
-
-- **One command** &#8212; `python chopify.py "<link>"` runs the whole pipeline: download &#8594; transcribe &#8594; score &#8594; render.
-- **Built-in AI virality scoring &#8212; no API keys** &#8212; every segment is rated on hook, shock, humour, controversy, insight, emotion, energy and complete-arc. A deterministic heuristic runs out of the box; add `--llm` to use a **local Ollama model** instead. Nothing is ever sent to the cloud.
-- **Complete-thought clips** &#8212; every clip is grown/trimmed to end on a sentence with terminal punctuation. No more clips that start or end mid-thought.
-- **Review workflow** &#8212; scoring prints a numbered candidate table; render only the ones you want with `--clips 1,3,5`.
-- **Keyword search** (`--search "pricing"`) &#8212; bypass virality scoring and build clips around transcript sentences containing your keywords.
-- **Preview drafts** (`--preview`) &#8212; render fast 480p cuts (no poster/meta) to check your picks before the full render.
-- **Pre-flight check** &#8212; before any stage, verifies ffmpeg/ffprobe, the H.264/AAC encoders, and required Python packages, with fix hints. Bypass with `--no-preflight`.
-- **Tighten cuts** (`--tighten`) &#8212; filler words ("um", "uh", "you know") and long silences are removed automatically, with captions re-timed to match.
-- **Caption style presets** &#8212; `default`, `hormozi` (red highlight), `mrbeast` (green), `podcast` (clean) &#8212; word-by-word, burnt in with ffmpeg.
-- **Ready-to-post metadata** &#8212; every clip ships with a `.meta.json` (title, description, hashtags) plus a PNG poster thumbnail.
-- **Multi-format output** &#8212; 16:9 (default, full frame), 9:16 (speaker-tracking auto-reframe via OpenCV YuNet, snap-on-cut + edge guard), or 1:1.
-- **Loudness normalization** (`--loudnorm`) &#8212; broadcast-standard -14 LUFS audio.
-- **Zero paid APIs, zero cloud** &#8212; yt-dlp + faster-whisper + ffmpeg + OpenCV, all local.
-- **Content decides the count** &#8212; a 1-hour video might yield 2 clips or 20.
-
-## Chopify vs Opus Clip, Vizard, Klap and other paid tools
-
-Chopify does the core of what these subscription products do &#8212; **AI-scored clips, auto-reframe to 9:16, and burnt word-by-word captions** &#8212; except it runs **free, on your own machine, and fully open-source**.
-
-| Product | Pricing | Runs | Open source |
-| --- | --- | --- | --- |
-| **Chopify** | **Free** | **Local (your PC)** | **MIT** |
-| [Opus Clip](https://www.opus.pro) | Paid subscription | Cloud | No |
-| [Vizard.ai](https://vizard.ai) | Paid subscription | Cloud | No |
-| [Klap](https://klap.app) | Paid subscription | Cloud | No |
-| [2Short.ai](https://2short.ai) | Freemium + paid | Cloud | No |
-| [Munch](https://www.getmunch.com) | Paid subscription | Cloud | No |
-| [Spikes Studio](https://spikes.studio) | Freemium + paid | Cloud | No |
-| [Submagic](https://www.submagic.co) | Paid subscription | Cloud | No |
-| [SendShort](https://sendshort.ai) | Paid subscription | Cloud | No |
-
-<sub>Independent products and trademarks of their respective owners; pricing and features change over time. Comparison covers the long-video to short-clip workflow only.</sub>
-
-## Requirements
-
-- Windows, Python 3.11+
-- `ffmpeg` + `ffprobe` on PATH &#8212; `winget install Gyan.FFmpeg`
-- `deno` on PATH (yt-dlp JS-challenge solving) &#8212; `winget install DenoLand.Deno`
-
-## Install
-
-```bash
+```powershell
+git clone https://github.com/mehbul/chopify.git
+cd chopify
+winget install Gyan.FFmpeg
 python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
+.venv\Scripts\python dashboard.py
 ```
 
-## Usage
+Studio opens at **http://127.0.0.1:8765**. Paste a local video path or URL, then click **Find clips**. Add multiple sources on separate lines to queue them. After processing, review candidates, edit captions, save your settings, and export selected clips. Stop the server with Ctrl+C. To change the port:
 
-**One command &#8212; link in, clips out:**
+```powershell
+.venv\Scripts\python dashboard.py --port 8766 --projects-dir projects
+```
 
-```bash
+The dashboard has no extra web framework or JavaScript installation step. It binds to loopback and is intended for one trusted user on the same computer, not as a public server.
+
+YouTube downloads may also require Deno: `winget install DenoLand.Deno`. A preflight check reports missing Python packages and encoders. Restart your terminal after installing tools so PATH changes take effect.
+
+## CLI: long video to short clips
+
+After installing dependencies, run with the virtual environment's Python (or activate it and use `python`):
+
+```powershell
+# Local recording or online video
+python chopify.py "C:\Videos\podcast.mp4" --aspect 9:16
 python chopify.py "https://youtube.com/watch?v=VIDEO_ID"
-python chopify.py "URL" --aspect 9:16 --style hormozi --tighten --loudnorm
-python chopify.py "URL" --llm qwen2.5:7b          # local Ollama picks the clips
-python chopify.py "URL" --search "pricing"         # clip around keyword matches
-python chopify.py "URL" --clips 1,3,5              # render only the numbered picks
-python chopify.py "URL" --preview                  # fast 480p draft preview first
+
+# Prepare once, inspect candidates, then render selected clips
+python chopify.py "C:\Videos\podcast.mp4" --workdir work --action prepare
+python chopify.py --project work --action render --clips 1,3 --preview
+python chopify.py --project work --action render --clips 1,3
+
+# Search the transcript using keywords or meaning
+python chopify.py "recording.mp4" --search "pricing"
+python chopify.py "recording.mp4" --semantic "advice about handling rejection"
+
+# Brand and podcast framing
+python chopify.py "podcast.mp4" --brand examples/brand.json --tighten --loudnorm
+python chopify.py "podcast.mp4" --aspect 9:16 --layout split --centers 0.25 0.75
+
+# Process a queue of videos into separate projects
+python chopify.py --batch examples/batch.json --projects-dir projects
 ```
 
-**Or run the stages individually:**
+CLI single-video runs save state under `work/` and copy the latest exports to `clips/`. Set `--out DIR` or `CHOPIFY_OUT` to change the export folder. Dashboard and batch jobs save outputs inside `projects/<id>/clips/` and drafts inside `previews/`. **Replace the batch sample's sources with your own paths or URLs.**
 
-**1. Download + transcribe** &#8594; writes `work/transcript.json`:
+Successful stages resume by default. Use `--no-resume` to reprocess, or `--project projects/<id> --action render` to retry a batch project. Use `--action render` after manual caption/clip edits; `--action prepare` recalculates candidates when selection inputs change. A failed batch job does not prevent later videos from processing; the CLI exits nonzero if any job fails.
 
-```bash
-python download_and_transcribe.py "<YOUTUBE_URL>"
+## Semantic search and optional local AI
+
+Default clip selection needs no LLM. For semantic search, install [Ollama](https://ollama.com), run it locally, and download an embedding model:
+
+```powershell
+ollama pull nomic-embed-text
+python chopify.py "podcast.mp4" --semantic "turning failure into a lesson"
 ```
 
-**2. Score** &#8594; writes `work/segments.json`:
+The embedding model runs on `127.0.0.1:11434`. Sentence embeddings are cached per transcript/model. Use `--embed-model MODEL` for another compatible local embedding model. Semantic search ranks matches by similarity; it does not guarantee that the topic is present. Missing models produce setup instructions rather than a cloud fallback.
 
-```bash
-python score_clips.py work                        # built-in heuristic, zero deps
-python score_clips.py work --llm qwen2.5:7b       # local Ollama (JSON mode)
-python score_clips.py work --min-score 7 --max-clips 12
-python score_clips.py work --search "pricing"     # keyword search over the transcript
-python score_clips.py work --clips 1,3,5          # render only the numbered candidates
+For optional LLM-based selection, download a local chat model separately and pass `--llm MODEL`. If it is unavailable, selection falls back to the heuristic. The GPU backend for faster-whisper is CUDA/NVIDIA; CPU transcription works without an NVIDIA GPU. `--device cpu|cuda|auto` controls transcription.
+
+## Is Chopify an alternative to Opus Clip?
+
+Chopify is a free, MIT-licensed option for creators who want local clipping, captions, reframing, and review. It requires local installation and uses your computer's resources. It does not include cloud collaboration, automatic social publishing, or hosted processing. Compare the workflows and privacy requirements that matter to you; feature sets and pricing of other products change.
+
+## Frequently asked questions
+
+### Does video leave my computer?
+
+Chopify does not upload footage or transcripts to a hosted processing service. Video URLs require downloads. Whisper models download on first use; face tracking may download a YuNet model; optional Ollama models need an initial download. **Local-file processing can run offline once the required dependencies and models are available.**
+
+### Can I correct captions and export subtitles?
+
+Yes. Open a prepared project in Studio, choose **Transcript**, edit word text or start/end times, and **Save captions**. Export again to apply the edits. Each draft and finished clip includes an SRT file relative to that clip's timeline. See the [caption workflow](docs/WORKFLOWS.md#edit-captions-and-export-srt).
+
+### Does split-screen identify who is speaking?
+
+No. Split-screen uses two adjustable horizontal crop centers for a fixed camera and stacks the crops vertically. It is not speaker diarization or automatic two-face tracking. Use a draft to tune the positions before final export.
+
+### What happens if processing fails or Studio closes?
+
+Completed stages and clips remain on disk. Restart Studio and queue the saved project again, or rerun the CLI with `--project PATH`. Interrupted jobs are marked for explicit retry. Changing the source, transcription model, selection settings, words, brand, or render options invalidates the relevant cached work. Do not run two writers against the same project directory at once.
+
+### Can it edit translated or multilingual subtitles?
+
+Whisper detects spoken language, and captions retain its transcription. The heuristic cue lists are English-oriented; punctuation and timing can vary by language. This update does not add translation, bilingual captions, or dubbing. Caption fonts must contain the glyphs you need.
+
+## Developer and agent documentation
+
+- [Workflow guide and project layout](docs/WORKFLOWS.md)
+- [CLI, Python interfaces, and local HTTP API](docs/AGENT-API.md)
+- [Setup and troubleshooting](docs/TROUBLESHOOTING.md)
+- [Machine-readable product facts](docs/product.json) and [llms.txt](llms.txt)
+- [Search discovery and documentation deployment](docs/DISCOVERABILITY.md)
+
+```powershell
+python -m pip install -r requirements-dev.txt
+python -m pytest tests/ -q
+python -m compileall -q chopify.py dashboard.py projects.py captions.py branding.py semantic.py download_and_transcribe.py score_clips.py render_clips.py tighten.py
 ```
 
-Each segment: `{"start": 134.2, "end": 187.6, "hook": "short title", "overall": 8.4}`.
-The heuristic scorer rates windows on the eight criteria (hook, shock, humour,
-controversy, insight, emotion, energy, complete-arc) and keeps clips at/above
-6.5 by default. Every clip ends on a complete sentence (terminal punctuation) &#8212;
-never mid-thought. With `--llm`, a local Ollama model does the picking in strict
-JSON mode and falls back to the heuristic automatically if Ollama is missing.
-`--search "pricing"` bypasses scoring and builds clips around transcript sentences
-containing all your keywords. `--clips 1,3,5` renders only the numbered rows from
-the candidate table. Prefer an LLM agent? The JSON format above is all it needs.
+Tests include real ffmpeg renders when ffmpeg is installed; speech models and Ollama are not required for the automated suite. Keep videos, transcripts, generated clips, and local brand presets out of Git. Use footage you have permission to process.
 
-**3. Render** &#8594; cut + reframe + burnt captions + poster + `.meta.json`:
-
-```bash
-python render_clips.py work --aspect 9:16 --style default --tighten
-```
-
-Output lands in `./clips` by default &#8212; change with `--out DIR` or `$CHOPIFY_OUT`.
-
-## FAQ
-
-**What is Chopify?**
-Chopify is a free, open-source command-line tool that turns long videos into short, captioned viral clips locally on your machine. You give it a YouTube link (or any video URL); it downloads the video, transcribes it with AI, scores each moment for virality, and exports the best clips ready for TikTok, Reels, or YouTube Shorts.
-
-**Is there a free alternative to Opus Clip?**
-Yes — Chopify is a free, open-source, self-hosted alternative to Opus Clip, Vizard and Klap. It runs entirely on your own computer, with no subscription and no API keys.
-
-**Is Opus Clip free / does Opus Clip cost money?**
-Opus Clip is a paid subscription service. If you want the same core features (AI-scored clips, auto-reframe to 9:16, word-by-word captions) for free, Chopify is the open-source alternative — it runs locally with no subscription and no per-clip credits.
-
-**How do I convert long videos to shorts for free?**
-Chopify does this in one command: `python chopify.py "https://youtube.com/watch?v=..."`. It transcribes the video, scores moments for virality, and exports the best ones as shorts. Add `--aspect 9:16` for vertical TikTok/Reels format, or `--search "topic"` to clip around specific keywords.
-
-**Can I use Chopify without an API key?**
-Yes. Everything runs locally with zero API keys. The built-in virality scorer needs no LLM at all. An optional local Ollama model (`--llm`) can upgrade clip selection, but nothing is ever sent to the cloud.
-
-**How is Chopify different from Vizard / Klap / Submagic?**
-Those are paid cloud services that upload your video to their servers. Chopify runs 100% locally on your machine — your video never leaves your PC, there is no subscription, and there are no watermarks or clip limits.
-
-**Can I turn a podcast into TikTok clips?**
-Yes. Chopify is built for exactly this: drop in a long podcast or interview, and it finds the most viral moments, adds word-by-word captions, and exports them ready for TikTok, Reels, or Shorts. Use `--tighten` to automatically remove filler words ("um", "uh", dead air).
-
-**Can I turn long videos into short clips without paying?**
-Yes. Chopify downloads a video, transcribes it locally, AI-scores every segment for virality, and exports the best moments as ready-to-post clips &#8212; for free.
-
-**Does it run locally, offline and privately?**
-Yes. Download, transcription, scoring and rendering all happen on your machine. Nothing is uploaded to the cloud.
-
-**What formats / aspect ratios does it export?**
-16:9 (landscape, default), 9:16 (vertical for TikTok, Reels and YouTube Shorts) and 1:1 (square). Each clip also gets a PNG poster.
-
-**Do I need an OpenAI, Gemini or other paid API key?**
-No. Chopify uses only open-source tools: yt-dlp, faster-whisper, ffmpeg and OpenCV. Clip selection runs on a built-in heuristic scorer, or on a **local** Ollama model with `--llm` &#8212; never a cloud API.
-
-**Can I find clips about a specific topic instead of virality scoring?**
-Yes. Pass `--search "pricing"` (or any keywords) to skip the virality scorer and build clips around every transcript sentence containing all your keywords. It pairs naturally with `--clips 1,3,5` so you can render only the best matches.
-
-**Can I preview clips before the full render?**
-Yes. `--preview` renders fast 480p drafts (no poster or `.meta.json`) so you can eyeball your picks quickly, then re-run without `--preview` for the full-quality output.
-
-**Why does chopify say "PREFLIGHT FAILED" / complain about libx264?**
-Before any stage, chopify checks that ffmpeg is on PATH, that ffmpeg can actually encode H.264 (libx264) and AAC (clips from builds without those are unplayable or silent), and that the Python packages are installed. Each problem comes with a fix hint. Bypass the check with `--no-preflight` if you know your setup is fine.
-
-**How does chopify decide which moments become clips?**
-Every transcript window is rated 0&#8211;10 on hook, shock, humour, controversy, insight, emotion, energy and complete-arc. By default a deterministic heuristic does this instantly and offline; `--llm qwen2.5:7b` hands the job to a local Ollama model for context-aware selection.
-
-**What is it good for?**
-Repurposing podcasts, interviews, webinars, lectures and long YouTube videos into short-form clips for TikTok, Instagram Reels and YouTube Shorts.
-
-## Notes
-
-- **GPU:** faster-whisper (CTranslate2) is **CUDA / NVIDIA-only**; on AMD it runs on CPU
-  (whisper.cpp + Vulkan was attempted for AMD but is unstable on RDNA3 &#8212; crashes or
-  returns corrupted output).
-- **Captions** use a built-in ffmpeg ASS renderer (the PyPI `pycaps` is an empty stub).
-- **Output folder:** `./clips` by default &#8212; change with `--out DIR` or `$CHOPIFY_OUT`.
-- **Ollama is optional.** The built-in heuristic needs no LLM at all; `--llm` simply
-  upgrades clip selection if you have [Ollama](https://ollama.com) installed locally.
-
-<sub>Personal / educational use &#8212; you are responsible for the rights to any video you process.</sub>
+Maintained by [mehbul](https://github.com/mehbul). [MIT license](LICENSE). Last documentation update: **2026-10-23**.

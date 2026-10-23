@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Local browser dashboard with project review, progress, logs, previews, caption
+  editing, candidate selection and downloadable exports.
+- Direct local video input (MP4, MOV, MKV, WebM, M4V, AVI).
+- Resumable projects with stage invalidation, per-clip checkpoints, and distinct
+  output names for render variants; partial failures retain successful clips.
+- Serial batch queue with isolated folders and aggregate failure reporting.
+- Word/timestamp editing and clip-relative SRT, including retimed tightened cuts.
+- Validated reusable JSON brand presets for fonts, colors, size, margins and logo.
+- Semantic clip search with optional local Ollama embeddings and document caching.
+- Vertical podcast split-screen with two adjustable fixed crop centers.
+- Workflow, troubleshooting, local API, and machine-readable product documentation.
+- Static documentation website with canonical/social metadata, JSON-LD, sitemap
+  and a GitHub Pages deployment workflow.
+
+### Fixed
+- Changed URL downloads cannot reuse an older source file.
+- LLM prompt definitions are initialized before standalone scorer execution.
+- Render failures return nonzero instead of reporting success.
+- Relative output paths resolve before ffmpeg changes its working directory.
+- Identical clip titles cannot overwrite each other's project exports.
+
+### Changed
+- Matching successful stages resume by default; `--no-resume` forces processing.
+- Docs clarify setup downloads, fixed framing, language limits and score meaning.
+
 ## [1.3.0] - 2026-09-06
 
 ### Added

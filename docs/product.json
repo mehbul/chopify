@@ -1,0 +1,19 @@
+{
+  "name": "Chopify",
+  "description": "Free local video clipper with a browser dashboard, resumable batch projects, editable captions, SRT, branding, semantic search, and podcast split-screen.",
+  "repository": "https://github.com/mehbul/chopify",
+  "website": "https://mehbul.github.io/chopify/",
+  "license": "MIT",
+  "price": {"amount": 0, "currency": "USD", "software_subscription_required": false},
+  "interfaces": ["Python CLI", "local browser dashboard", "authenticated loopback HTTP API"],
+  "requirements": ["Python >=3.11", "ffmpeg and ffprobe with libx264, AAC and libass", "yt-dlp", "faster-whisper", "opencv-python"],
+  "platforms": {"primary": "Windows", "ci": ["Windows", "Linux"]},
+  "inputs": ["local MP4", "MOV", "MKV", "WebM", "M4V", "AVI", "yt-dlp-supported HTTP(S) URL"],
+  "outputs": ["H.264 MP4", "AAC if source audio exists", "clip-relative SRT", "PNG poster", "metadata JSON"],
+  "aspects": ["16:9", "9:16", "1:1"],
+  "capabilities": ["serial batch queue", "resumable projects", "candidate review", "caption editing", "brand presets and logo", "keyword search", "optional local semantic search", "fixed two-panel podcast framing", "single-frame face tracking", "filler and silence removal"],
+  "optional_models": {"semantic_search": {"provider": "local Ollama", "default_model": "nomic-embed-text", "endpoint": "http://127.0.0.1:11434/api/embed"}, "clip_selection": "local Ollama chat model"},
+  "privacy": {"hosted_processing": false, "initial_model_downloads": true, "url_inputs_need_internet": true, "dashboard_binding": "127.0.0.1"},
+  "not_included": ["social publishing", "scheduling", "cloud collaboration", "hosted processing", "translation", "dubbing", "speaker diarization", "guaranteed virality"],
+  "documentation_updated": "2026-10-23"
+}

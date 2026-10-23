@@ -1,0 +1,4 @@
+# Project-site copy; crawler directives apply only at the origin root /robots.txt.
+User-agent: *
+Allow: /
+Sitemap: https://mehbul.github.io/chopify/sitemap.xml

@@ -7,7 +7,10 @@ on:
 
 jobs:
   test:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +25,18 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Compile check
-        run: python -m py_compile chopify.py download_and_transcribe.py score_clips.py render_clips.py tighten.py
+        run: python -m compileall -q chopify.py dashboard.py projects.py captions.py branding.py semantic.py download_and_transcribe.py score_clips.py render_clips.py tighten.py tools
+
+      - name: Install ffmpeg on Windows
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg --no-progress -y
+
+      - name: Install ffmpeg and fonts on Linux
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg fonts-liberation
 
       - name: Run tests
         run: pytest tests/ -q
+
+      - name: Build public documentation
+        run: python tools/build_site.py --out _site
