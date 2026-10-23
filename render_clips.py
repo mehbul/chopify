@@ -334,11 +334,15 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
 
     needs_track = cw < W * 0.95          # real horizontal crop -> track the speaker
     if layout == "split":
-        pcw, pch, _, py = crop_for(W, H, tw, th / 2)
+        # Keep every YUV420 panel even-sized. Older libass/ffmpeg builds can
+        # crash on odd-height intermediate frames (854px drafts / 2 = 427).
+        panel_h = (th // 4) * 2
+        pcw, pch, _, py = crop_for(W, H, tw, panel_h)
         positions = [max(0, min(W - pcw, round(W * c - pcw / 2))) for c in centers]
         vf = (f"[0:v]split=2[a][b];[a]crop={pcw}:{pch}:{positions[0]}:{py},"
-              f"scale={tw}:{th // 2}[top];[b]crop={pcw}:{pch}:{positions[1]}:{py},"
-              f"scale={tw}:{th // 2}[bottom];[top][bottom]vstack=inputs=2,subtitles=_caption.ass")
+              f"scale={tw}:{panel_h}[top];[b]crop={pcw}:{pch}:{positions[1]}:{py},"
+              f"scale={tw}:{panel_h}[bottom];[top][bottom]vstack=inputs=2,"
+              f"pad={tw}:{th}:0:0,subtitles=_caption.ass")
         mode = "podcast split-screen"
     elif needs_track:
         track = smooth_track(detect_track(render_src, start, dur, W, workdir), W, cw)

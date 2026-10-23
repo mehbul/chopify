@@ -41,7 +41,9 @@ def test_render_playable_with_subtitles_and_brand(source, tmp_path, layout, prev
     assert "00:00:00,000" in out.with_suffix(".srt").read_text()
     if layout == "split":
         video = next(s for s in streams if s["codec_type"] == "video")
-        assert video["height"] > video["width"]
+        expected = render_clips.PREVIEW["9:16"] if preview else render_clips.ASPECTS["9:16"][:2]
+        assert (video["width"], video["height"]) == expected
+        assert video["pix_fmt"] == "yuv420p"
     if not preview:
         assert out.with_suffix(".png").is_file()
         assert out.with_suffix(".meta.json").is_file()

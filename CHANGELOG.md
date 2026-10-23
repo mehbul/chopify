@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and a GitHub Pages deployment workflow.
 
 ### Fixed
+- Split-screen draft panels use even YUV420 dimensions to avoid crashes in older
+  ffmpeg/libass builds; padding preserves the intended preview resolution.
 - Changed URL downloads cannot reuse an older source file.
 - LLM prompt definitions are initialized before standalone scorer execution.
 - Render failures return nonzero instead of reporting success.
