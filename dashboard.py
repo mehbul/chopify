@@ -10,7 +10,7 @@ import secrets
 import subprocess
 import sys
 import threading
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 import webbrowser
 
 import branding
@@ -28,6 +28,7 @@ class Studio:
         self.token = secrets.token_urlsafe(32)
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="chopify")
         self.lock = threading.RLock()
+        self.pdf_lock = threading.Lock()
         self.futures = {}
         self.processes = set()
         self.closing = False
@@ -116,7 +117,7 @@ class Handler(BaseHTTPRequestHandler):
     def end_headers(self):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Referrer-Policy", "no-referrer")
-        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; media-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'")
+        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; script-src 'self'; media-src 'self'; img-src 'self' data: blob:; frame-ancestors 'none'; base-uri 'none'")
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
@@ -136,6 +137,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Use the 127.0.0.1 Studio address."}, 403)
         try:
             parts = unquote(urlsplit(self.path).path).strip("/").split("/")
+            if parts[:2] == ["api", "pdf"]:
+                return self.get_pdf(parts)
             if parts == ["api", "config"]:
                 brands = sorted(p.stem for p in (self.app.root / "brands").glob("*.json"))
                 return self.send_json({"token": self.app.token, "defaults": projects.DEFAULT_OPTIONS, "brands": brands})
@@ -170,7 +173,8 @@ class Handler(BaseHTTPRequestHandler):
                 if file.parent != path / parts[2] or file.suffix not in {".mp4", ".srt", ".png", ".json"}:
                     raise ValueError("Invalid media path.")
                 return self.send_file(file)
-            static = {"": "index.html", "app.js": "app.js", "style.css": "style.css"}
+            static = {"": "index.html", "app.js": "app.js", "style.css": "style.css",
+                      "pdf.js": "pdf.js", "pdf.css": "pdf.css", "images-to-pdf": "pdf.html"}
             filename = "/".join(parts)
             if filename in static:
                 return self.send_file(STATIC / static[filename])
@@ -190,12 +194,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Request rejected. Reload Studio and retry."}, 403)
         try:
             length = int(self.headers.get("Content-Length", "0"))
+            parts = unquote(urlsplit(self.path).path).strip("/").split("/")
+            if parts == ["api", "pdf", "assets"]:
+                import pdf_images
+                if not 0 < length <= pdf_images.MAX_UPLOAD:
+                    raise ValueError("Each uploaded image must be 20 MB or smaller.")
+                result = pdf_images.upload(self.app.root, unquote(self.headers.get("X-File-Name", "image")), self.rfile.read(length))
+                return self.send_json(result, 201)
             if not 0 < length <= 10_000_000:
                 raise ValueError("Request must be JSON smaller than 10 MB.")
             body = json.loads(self.rfile.read(length))
             if not isinstance(body, dict):
                 raise ValueError("Expected a JSON object.")
-            parts = unquote(urlsplit(self.path).path).strip("/").split("/")
+            if parts[:2] == ["api", "pdf"]:
+                return self.post_pdf(parts, body)
             with self.app.lock:
                 if parts == ["api", "projects"]:
                     return self.send_json(projects.create_project(self.app.root, body["source"], body.get("options", {})), 201)
@@ -245,12 +257,49 @@ class Handler(BaseHTTPRequestHandler):
                         return self.send_json({"error": "Not found."}, 404)
                     return self.send_json({"ok": True})
             self.send_json({"error": "Not found."}, 404)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
         except FileNotFoundError:
             self.send_json({"error": "Project or transcript not found. Prepare the project first."}, 404)
         except (ValueError, KeyError, TypeError, OSError) as exc:
             self.send_json({"error": str(exc)}, 400)
 
-    def send_file(self, path):
+    def get_pdf(self, parts):
+        import pdf_images as pdf
+        if parts == ["api", "pdf", "config"]:
+            return self.send_json({"image_defaults": pdf.IMAGE_DEFAULTS, "pdf_defaults": pdf.PDF_DEFAULTS,
+                                   "assets": pdf.assets(self.app.root), "history": pdf.history(self.app.root)})
+        if len(parts) == 5 and parts[:3] == ["api", "pdf", "assets"] and parts[4] in {"image", "thumbnail"}:
+            path = pdf.asset_path(self.app.root, parts[3])
+            return self.send_file(path if parts[4] == "image" else path.with_suffix(".thumb.png"))
+        if len(parts) in (4, 5) and parts[:3] == ["api", "pdf", "documents"]:
+            saved = pdf.document(self.app.root, parts[3])
+            if len(parts) == 4:
+                return self.send_json(saved)
+            if parts[4] == "download":
+                return self.send_file(pdf.export_path(self.app.root, parts[3]), download=saved["filename"])
+        return self.send_json({"error": "PDF route not found."}, 404)
+
+    def post_pdf(self, parts, body):
+        import pdf_images as pdf
+        with self.app.pdf_lock:
+            if parts == ["api", "pdf", "preview"]:
+                index, total = body.get("index", 1), body.get("total", 1)
+                if not isinstance(index, int) or not isinstance(total, int) or not 1 <= index <= total <= pdf.MAX_PAGES:
+                    raise ValueError("Invalid page number.")
+                data = pdf.preview(self.app.root, body["page"], body.get("options", {}), index, total)
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                return self.wfile.write(data)
+            if parts == ["api", "pdf", "export"]:
+                result = pdf.export(self.app.root, body["pages"], body.get("options", {}))
+                result["url"] = f"/api/pdf/documents/{result['id']}/download"
+                return self.send_json(result, 201)
+        return self.send_json({"error": "PDF route not found."}, 404)
+
+    def send_file(self, path, download=None):
         if not path.is_file():
             raise FileNotFoundError(path)
         size = path.stat().st_size
@@ -267,6 +316,8 @@ class Handler(BaseHTTPRequestHandler):
             status = 206
         self.send_response(status)
         self.send_header("Content-Type", mimetypes.guess_type(path.name)[0] or "application/octet-stream")
+        if download:
+            self.send_header("Content-Disposition", "attachment; filename*=UTF-8''" + quote(download))
         self.send_header("Accept-Ranges", "bytes")
         self.send_header("Content-Length", str(max(0, end - start + 1)))
         if status == 206:

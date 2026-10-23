@@ -87,3 +87,41 @@ def test_queued_projects_reject_duplicate_jobs_and_edits(server, monkeypatch):
             assert exc.value.code == 400
     finally:
         gate.set()
+
+
+def test_image_upload_preview_pdf_export_and_download(server):
+    import io
+    from PIL import Image
+    from pypdf import PdfReader
+    httpd, base = server
+    buffer = io.BytesIO()
+    Image.new("RGB", (90, 130), "orange").save(buffer, "PNG")
+    req = urllib.request.Request(base + "/api/pdf/assets", data=buffer.getvalue(), headers={
+        "Content-Type": "application/octet-stream", "X-File-Name": "page%201.png", "X-Chopify-Token": httpd.app.token})
+    with urllib.request.urlopen(req) as response:
+        image = json.load(response)
+    assert image["name"] == "page 1.png"
+    page = {"asset": image["id"], "settings": {"filter": "grayscale"}}
+    req = urllib.request.Request(base + "/api/pdf/preview", data=json.dumps({"page": page, "options": {}}).encode(),
+        headers={"Content-Type":"application/json", "X-Chopify-Token":httpd.app.token})
+    with urllib.request.urlopen(req) as response:
+        assert response.headers["Content-Type"] == "image/jpeg"
+        assert Image.open(io.BytesIO(response.read())).width > 0
+    result = request(base, "/api/pdf/export", {"pages": [page], "options": {"title": "HTTP album"}}, httpd.app.token)
+    with urllib.request.urlopen(base + result["url"]) as response:
+        assert "attachment" in response.headers["Content-Disposition"]
+        pdf = PdfReader(io.BytesIO(response.read()))
+        assert len(pdf.pages) == 1 and pdf.metadata.title == "HTTP album"
+    saved = request(base, f"/api/pdf/documents/{result['id']}")
+    assert saved["pages"][0]["asset"] == image["id"]
+    config = request(base, "/api/pdf/config")
+    assert config["assets"][0]["id"] == image["id"]
+    assert config["history"][0]["id"] == result["id"]
+
+
+def test_image_upload_requires_authentication(server):
+    _, base = server
+    req = urllib.request.Request(base + "/api/pdf/assets", data=b"image")
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        urllib.request.urlopen(req)
+    assert exc.value.code == 403

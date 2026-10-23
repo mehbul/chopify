@@ -1,1 +1,2 @@
 pytest>=8.0
+pypdf>=5.0

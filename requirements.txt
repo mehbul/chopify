@@ -1,5 +1,7 @@
-# Viral clip pipeline - fully local, no paid APIs
+# Local video and image-to-PDF tools - no paid APIs
 yt-dlp
 faster-whisper
 opencv-python
+Pillow>=11.0
+reportlab>=4.0
 # Captions are burnt in via ffmpeg's ASS engine (no extra package needed).

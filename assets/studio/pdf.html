@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Images to PDF · Chopify Studio</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/pdf.css" />
+    <script src="/pdf.js" defer></script>
+  </head>
+  <body>
+    <aside class="rail">
+      <a class="wordmark" href="/" aria-label="Chopify Studio home"
+        ><span class="mark">c/</span>chopify<span class="version"
+          >STUDIO</span
+        ></a
+      >
+      <div class="local">
+        <span class="dot"></span> Images stay on this computer
+      </div>
+      <a class="tool-back" href="/">← Video workspace</a>
+      <div class="rail-heading">
+        RECENT PDFS <span id="pdf-history-count">0</span>
+      </div>
+      <nav id="pdf-history" aria-label="Recent PDF documents">
+        <p class="muted">Your saved PDFs appear here.</p>
+      </nav>
+      <div class="rail-footer">
+        Put your pages in order.<br /><span
+          >Local processing · No watermark</span
+        >
+      </div>
+    </aside>
+    <main class="pdf-main">
+      <header class="topbar">
+        <span>THE LOCAL DOCUMENT ROOM</span
+        ><span><span class="dot"></span> Images → PDF</span>
+      </header>
+      <div id="pdf-notice" role="status" aria-live="polite" hidden></div>
+      <section class="view">
+        <div class="pdf-heading">
+          <div>
+            <span class="eyebrow">YOUR PICTURES. YOUR PAGE ORDER.</span>
+            <h1>From pictures<br /><em>to pages.</em></h1>
+            <p class="muted">
+              Arrange, clean up, and turn your images into one PDF.
+            </p>
+          </div>
+          <div class="pdf-heading-actions">
+            <button id="pdf-clear">New document</button
+            ><button id="pdf-export" class="primary" disabled>
+              Create PDF ↗
+            </button>
+          </div>
+        </div>
+        <div id="pdf-drop" class="pdf-drop">
+          <div>
+            <strong>Drop pictures here</strong>
+            <p>
+              JPEG, PNG, WebP, BMP or TIFF · 20 MB / 24 MP per image · up to 100
+              pages
+            </p>
+          </div>
+          <button id="pdf-add" class="primary">＋ Add pictures</button
+          ><input
+            id="pdf-files"
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/bmp,image/tiff,.tif,.tiff"
+            multiple
+            hidden
+          />
+        </div>
+        <p id="pdf-progress" class="hint" role="status" hidden></p>
+        <div class="pdf-workspace">
+          <section class="pdf-pages panel" aria-label="PDF page order">
+            <div class="panel-title">
+              <h2>Page order</h2>
+              <span id="pdf-count">0 PAGES</span>
+            </div>
+            <div class="pdf-order-tools">
+              <button id="pdf-sort">Sort by name</button
+              ><button id="pdf-reverse">Reverse</button>
+            </div>
+            <p class="hint">
+              Drag to reorder or use the arrow buttons. Export follows this
+              order.
+            </p>
+            <div id="pdf-pages">
+              <p class="muted">Add pictures to start your document.</p>
+            </div>
+            <details class="pdf-library">
+              <summary>Reuse uploaded images</summary>
+              <div id="pdf-library"></div>
+            </details>
+          </section>
+          <section class="pdf-preview-column">
+            <div class="panel-title">
+              <h2>Page preview</h2>
+              <span id="pdf-preview-label">SELECT A PAGE</span>
+            </div>
+            <div class="pdf-preview-wrap">
+              <img
+                id="pdf-preview"
+                alt="Preview of the selected PDF page"
+                hidden
+              />
+              <p id="pdf-preview-empty">Your selected page will appear here.</p>
+            </div>
+            <p class="hint">
+              Preview uses the same filters and layout as export, at a smaller
+              resolution.
+            </p>
+            <div id="pdf-result" class="panel" hidden>
+              <h2>PDF ready</h2>
+              <p id="pdf-result-info"></p>
+              <a id="pdf-download" class="primary pdf-download" download
+                >Download PDF ↓</a
+              >
+            </div>
+          </section>
+          <aside class="pdf-controls panel">
+            <div class="tabs pdf-control-tabs">
+              <button id="pdf-tab-image" aria-pressed="true">
+                Image adjustments</button
+              ><button id="pdf-tab-document" aria-pressed="false">
+                PDF settings
+              </button>
+            </div>
+            <form id="pdf-image-form">
+              <p class="hint" id="pdf-image-hint">
+                Select a page to adjust it.
+              </p>
+              <fieldset id="pdf-image-fields" disabled>
+                <label
+                  >Filter<select name="filter">
+                    <option value="original">Original color</option>
+                    <option value="grayscale">Grayscale</option>
+                    <option value="bw">Black & white</option>
+                    <option value="scan">Document scan</option>
+                    <option value="sepia">Sepia</option>
+                  </select></label
+                >
+                <label
+                  >Brightness <output id="pdf-brightness-value">1.00</output
+                  ><input
+                    name="brightness"
+                    type="range"
+                    min="0"
+                    max="3"
+                    step="0.05"
+                    value="1"
+                /></label>
+                <label
+                  >Contrast <output id="pdf-contrast-value">1.00</output
+                  ><input
+                    name="contrast"
+                    type="range"
+                    min="0"
+                    max="3"
+                    step="0.05"
+                    value="1"
+                /></label>
+                <label
+                  >Saturation <output id="pdf-saturation-value">1.00</output
+                  ><input
+                    name="saturation"
+                    type="range"
+                    min="0"
+                    max="3"
+                    step="0.05"
+                    value="1"
+                /></label>
+                <label
+                  >Sharpness <output id="pdf-sharpness-value">1.00</output
+                  ><input
+                    name="sharpness"
+                    type="range"
+                    min="0"
+                    max="3"
+                    step="0.05"
+                    value="1"
+                /></label>
+                <label
+                  >Black & white threshold
+                  <output id="pdf-threshold-value">160</output
+                  ><input
+                    name="threshold"
+                    type="range"
+                    min="0"
+                    max="255"
+                    step="1"
+                    value="160"
+                /></label>
+                <p class="hint">
+                  Threshold applies to black & white and document scan filters.
+                </p>
+                <label
+                  >Rotate clockwise<select name="rotation">
+                    <option value="0">0°</option>
+                    <option value="90">90°</option>
+                    <option value="180">180°</option>
+                    <option value="270">270°</option>
+                  </select></label
+                >
+                <div class="pair">
+                  <label class="check"
+                    ><input name="flip_h" type="checkbox" /> Flip
+                    horizontal</label
+                  ><label class="check"
+                    ><input name="flip_v" type="checkbox" /> Flip
+                    vertical</label
+                  >
+                </div>
+                <label class="check"
+                  ><input name="autocontrast" type="checkbox" /> Auto
+                  contrast</label
+                ><label class="check"
+                  ><input name="invert" type="checkbox" /> Invert colors</label
+                >
+                <details>
+                  <summary>Crop image</summary>
+                  <p class="hint">
+                    Percent of the original image, before rotation. The area
+                    between these bounds is kept.
+                  </p>
+                  <div class="pair">
+                    <label
+                      >Left (%)<input
+                        name="crop_left"
+                        type="number"
+                        min="0"
+                        max="99"
+                        step="1"
+                        value="0" /></label
+                    ><label
+                      >Top (%)<input
+                        name="crop_top"
+                        type="number"
+                        min="0"
+                        max="99"
+                        step="1"
+                        value="0" /></label
+                    ><label
+                      >Right (%)<input
+                        name="crop_right"
+                        type="number"
+                        min="1"
+                        max="100"
+                        step="1"
+                        value="100" /></label
+                    ><label
+                      >Bottom (%)<input
+                        name="crop_bottom"
+                        type="number"
+                        min="1"
+                        max="100"
+                        step="1"
+                        value="100"
+                    /></label>
+                  </div>
+                </details>
+                <div class="pdf-adjust-actions">
+                  <button id="pdf-reset-image" type="button">Reset image</button
+                  ><button id="pdf-apply-all" type="button">
+                    Apply to all pages
+                  </button>
+                </div>
+              </fieldset>
+            </form>
+            <form id="pdf-document-form" hidden>
+              <label
+                >Document title<input
+                  name="title"
+                  value="Image document"
+                  maxlength="150"
+                  required /></label
+              ><label
+                >Download filename<input
+                  name="filename"
+                  value="images"
+                  maxlength="150"
+                  required
+              /></label>
+              <label
+                >Paper size<select name="paper">
+                  <option>A4</option>
+                  <option>A5</option>
+                  <option>Letter</option>
+                  <option>Legal</option>
+                  <option value="Image">Match each image</option>
+                </select></label
+              >
+              <label
+                >Orientation<select name="orientation">
+                  <option value="auto">Auto · match each picture</option>
+                  <option value="portrait">Portrait</option>
+                  <option value="landscape">Landscape</option>
+                </select></label
+              >
+              <label
+                >Image fit<select name="fit">
+                  <option value="contain">Fit whole image</option>
+                  <option value="cover">Fill page · crop edges</option>
+                  <option value="stretch">Stretch to fit</option>
+                </select></label
+              >
+              <div class="pair">
+                <label
+                  >Margin (mm)<input
+                    name="margin"
+                    type="number"
+                    min="0"
+                    max="40"
+                    step="1"
+                    value="10"
+                    required /></label
+                ><label
+                  >Page background<input
+                    name="background"
+                    type="color"
+                    value="#ffffff"
+                /></label>
+              </div>
+              <label
+                >Resolution<select name="dpi">
+                  <option value="72">72 DPI · smaller file</option>
+                  <option value="150" selected>150 DPI · balanced</option>
+                  <option value="200">200 DPI · detailed</option>
+                  <option value="300">300 DPI · print</option>
+                </select></label
+              >
+              <label
+                >JPEG quality <output id="pdf-quality-value">90</output
+                ><input
+                  name="quality"
+                  type="range"
+                  min="40"
+                  max="100"
+                  step="1"
+                  value="90"
+              /></label>
+              <label class="check"
+                ><input name="page_numbers" type="checkbox" /> Add page
+                numbers</label
+              >
+              <p class="hint">
+                One picture per page. Transparent areas become white. PDF pages
+                are images; OCR/searchable text is not included. TIFF uses its
+                first frame.
+              </p>
+            </form>
+          </aside>
+        </div>
+      </section>
+      <footer>
+        CHOPIFY
+        <span>Local image processing · No upload to a cloud service</span>
+      </footer>
+    </main>
+  </body>
+</html>
