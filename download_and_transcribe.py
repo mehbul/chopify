@@ -11,6 +11,9 @@ import sys
 import json
 import argparse
 import subprocess
+import tempfile
+import shutil
+from urllib.parse import urlparse
 from pathlib import Path
 
 
@@ -19,7 +22,29 @@ def run(cmd):
     subprocess.run(cmd, check=True)
 
 
+def resolve_source(source, workdir):
+    """Keep local files in place; only network URLs go through yt-dlp."""
+    path = Path(source).expanduser()
+    if path.is_file():
+        if path.suffix.lower() not in {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"}:
+            raise ValueError("Use a video file: MP4, MKV, WebM, MOV, M4V or AVI.")
+        return path.resolve()
+    if urlparse(source).scheme not in {"http", "https"}:
+        raise ValueError(f"Video file does not exist or URL is invalid: {source}")
+    return download(source, Path(workdir))
+
+
 def download(url, workdir):
+    workdir.mkdir(parents=True, exist_ok=True)
+    # A fresh directory prevents a changed URL from reusing an old source.mp4.
+    with tempfile.TemporaryDirectory(prefix="download-", dir=workdir) as temp:
+        video = _download(url, Path(temp))
+        destination = workdir / video.name
+        shutil.move(str(video), str(destination))
+        return destination.resolve()
+
+
+def _download(url, workdir):
     out_tmpl = workdir / "source.%(ext)s"
     # Highest quality: best video + best audio, merged to mp4 (needs ffmpeg on PATH).
     cmd = [
@@ -81,7 +106,7 @@ def main():
     workdir = Path(args.workdir)
     workdir.mkdir(parents=True, exist_ok=True)
 
-    video = download(args.url, workdir)
+    video = resolve_source(args.url, workdir)
     print("Downloaded:", video, flush=True)
     transcribe(video, workdir, args.model, args.device, args.compute_type)
     print("STAGE 1 COMPLETE", flush=True)

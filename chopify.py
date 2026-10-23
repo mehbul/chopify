@@ -19,10 +19,8 @@ import sys
 import shutil
 import argparse
 import subprocess
+import json
 from pathlib import Path
-
-HERE = Path(__file__).resolve().parent
-PY = sys.executable
 
 # Python packages the pipeline needs, with a fix hint per missing module.
 IMPORT_HINTS = {
@@ -80,18 +78,11 @@ def check_environment(runner=subprocess.run):
     return problems
 
 
-def sh(cmd):
-    print("\n" + "=" * 70, flush=True)
-    print(">", " ".join(str(c) for c in cmd), flush=True)
-    print("=" * 70, flush=True)
-    subprocess.run([str(c) for c in cmd], check=True)
-
-
 def main():
     ap = argparse.ArgumentParser(
         prog="chopify",
         description="YouTube link -> scored, captioned clips. 100% local, free.")
-    ap.add_argument("url", help="YouTube URL (or any yt-dlp-supported URL)")
+    ap.add_argument("url", nargs="?", help="local video path or yt-dlp-supported URL")
     ap.add_argument("--workdir", default="work", help="intermediate files dir")
     ap.add_argument("--aspect", default="16:9", choices=["16:9", "9:16", "1:1"],
                     help="output aspect ratio (default 16:9)")
@@ -124,7 +115,25 @@ def main():
                     help="faster-whisper size: tiny/base/small/medium/large-v3")
     ap.add_argument("--no-preflight", action="store_true",
                     help="skip the environment check (ffmpeg, packages, ...)")
+    ap.add_argument("--project", help="resume an existing project directory")
+    ap.add_argument("--projects-dir", default="projects", help="batch project storage")
+    ap.add_argument("--batch", help="JSON file containing a list of video paths or URLs")
+    ap.add_argument("--resume", action=argparse.BooleanOptionalAction, default=True,
+                    help="reuse successful matching stages (default enabled)")
+    ap.add_argument("--action", choices=["all", "prepare", "render"], default="all",
+                    help="prepare candidates for review, render saved edits, or run all stages")
+    ap.add_argument("--semantic", help="find clips by meaning with local embeddings")
+    ap.add_argument("--embed-model", default="nomic-embed-text")
+    ap.add_argument("--brand", help="JSON brand preset path")
+    ap.add_argument("--layout", choices=["single", "split"], default="single")
+    ap.add_argument("--centers", type=float, nargs=2, default=[0.25, 0.75],
+                    help="horizontal speaker centers from 0 to 1 for split-screen")
+    ap.add_argument("--device", choices=["cpu", "cuda", "auto"], default="cpu")
     args = ap.parse_args()
+    if not (args.url or args.batch or args.project):
+        ap.error("provide a local video, URL, --batch file, or --project directory")
+    if args.batch and (args.url or args.project):
+        ap.error("--batch cannot be combined with a single source or --project")
 
     if not args.no_preflight:
         problems = check_environment()
@@ -137,38 +146,50 @@ def main():
         print("PREFLIGHT OK (ffmpeg + libx264/aac, ffprobe, yt-dlp, "
               "faster-whisper, opencv)", flush=True)
 
-    workdir = Path(args.workdir)
-
-    # Stage 1: download + transcribe
-    sh([PY, HERE / "download_and_transcribe.py", args.url,
-        "--workdir", workdir, "--model", args.whisper_model])
-
-    # Stage 2: score
-    cmd = [PY, HERE / "score_clips.py", workdir,
-           "--max-clips", args.max_clips,
-           "--min-len", args.min_len, "--max-len", args.max_len]
-    if args.llm:
-        cmd += ["--llm", args.llm]
-    if args.min_score is not None:
-        cmd += ["--min-score", args.min_score]
-    if args.search:
-        cmd += ["--search", args.search]
-    if args.clips:
-        cmd += ["--clips", args.clips]
-    sh(cmd)
-
-    # Stage 3: render
-    cmd = [PY, HERE / "render_clips.py", workdir,
-           "--aspect", args.aspect, "--style", args.style]
-    if args.out:
-        cmd += ["--out", args.out]
-    if args.tighten:
-        cmd.append("--tighten")
-    if args.loudnorm:
-        cmd.append("--loudnorm")
-    if args.preview:
-        cmd.append("--preview")
-    sh(cmd)
+    import projects
+    options = {k: getattr(args, k) for k in projects.DEFAULT_OPTIONS}
+    if options["brand"]:
+        options["brand"] = str(Path(options["brand"]).resolve())
+    try:
+        if args.batch:
+            sources = json.loads(Path(args.batch).read_text(encoding="utf-8-sig"))
+            results = projects.run_batch(sources, Path(args.projects_dir).resolve(), options,
+                action=args.action, preview=args.preview, pick=args.clips, resume=args.resume)
+            print(json.dumps(results, indent=2))
+            if any(r["status"] == "failed" for r in results):
+                raise SystemExit(1)
+            return
+        path = Path(args.project or args.workdir).resolve()
+        if (path / "project.json").exists():
+            state = projects.read_project(path)
+            if args.url:
+                state["source"] = str(Path(args.url).resolve()) if Path(args.url).is_file() else args.url
+            # Existing projects keep their settings unless a flag explicitly changes one.
+            for key in options:
+                flag = "--" + key.replace("_", "-")
+                if any(token == flag or token.startswith(flag + "=") for token in sys.argv[1:]):
+                    state["options"][key] = options[key]
+            projects.save_project(path, state)
+        else:
+            if not args.url:
+                ap.error("new projects require a local video or URL")
+            source = str(Path(args.url).resolve()) if Path(args.url).is_file() else args.url
+            projects.init_project(path, source, options)
+        result = projects.run_project(path, action=args.action, preview=args.preview,
+                                      pick=args.clips, resume=args.resume)
+        if args.action != "prepare":
+            from render_clips import default_out
+            export = (Path(args.out) if args.out else default_out()).resolve()
+            export.mkdir(parents=True, exist_ok=True)
+            for video in result.get("last_outputs", []):
+                for suffix in (".mp4", ".srt", ".png", ".meta.json"):
+                    file = Path(video).with_suffix(suffix)
+                    target = export / file.name
+                    if file.exists() and file.resolve() != target.resolve():
+                        shutil.copy2(file, target)
+            print(f"Exports: {export}")
+    except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as exc:
+        ap.exit(1, f"Chopify: {exc}\n")
     print("\nCHOPIFY COMPLETE", flush=True)
 
 

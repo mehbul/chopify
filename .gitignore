@@ -13,4 +13,6 @@ __pycache__/
 
 # chopify outputs
 clips/
+projects/
+_site/
 .pytest_cache/

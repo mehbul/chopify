@@ -22,6 +22,7 @@ import re
 import json
 import argparse
 import subprocess
+import math
 from pathlib import Path
 
 import tighten  # local module: filler/silence removal
@@ -230,8 +231,14 @@ def ass_escape(s):
 
 
 def build_ass(words, clip_start, clip_end, path, tw, th, font_size, margin_v,
-              style_name=DEFAULT_STYLE):
-    st = get_style(style_name)
+              style_name=DEFAULT_STYLE, brand=None):
+    st = dict(get_style(style_name))
+    color = "&H00FFFFFF&"
+    if brand:
+        st.update(font=brand["font"], highlight=brand["highlight"])
+        color = brand["color"]
+        font_size = max(12, round(brand["font_size"] * th / 1080))
+        margin_v = round(brand["margin"] * th / 1080)
     sub = [w for w in words if w["end"] > clip_start and w["start"] < clip_end]
     header = (
         "[Script Info]\nScriptType: v4.00+\n"
@@ -241,7 +248,7 @@ def build_ass(words, clip_start, clip_end, path, tw, th, font_size, margin_v,
         "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, "
         "ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, "
         "MarginL, MarginR, MarginV, Encoding\n"
-        f"Style: Cap,{st['font']},{font_size},&H00FFFFFF,&H000000FF,&H00000000,"
+        f"Style: Cap,{st['font']},{font_size},{color},&H000000FF,&H00000000,"
         f"&H64000000,{st['weight']},0,0,0,100,100,0,0,1,5,2,2,80,80,{margin_v},1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, "
@@ -250,12 +257,12 @@ def build_ass(words, clip_start, clip_end, path, tw, th, font_size, margin_v,
     groups = [sub[i:i + WORDS_PER_LINE] for i in range(0, len(sub), WORDS_PER_LINE)]
     events = []
     hl = r"{\c" + st["highlight"] + "}"
-    white = r"{\c&HFFFFFF&}"
+    white = r"{\c" + color + "}"
     for g in groups:
         for i, w in enumerate(g):
             s0 = max(w["start"], clip_start) - clip_start
-            en = (g[i + 1]["start"] - clip_start) if i + 1 < len(g) \
-                else (w["end"] - clip_start)
+            en = min(clip_end, g[i + 1]["start"] if i + 1 < len(g)
+                     else w["end"]) - clip_start
             if en <= s0:
                 en = s0 + 0.12
             parts = []
@@ -286,8 +293,16 @@ def write_meta(seg, out_path):
 
 
 def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAULT_STYLE,
-           do_tighten=False, loudnorm=False, preview=False):
-    out_dir = Path(out_dir) if out_dir else default_out()
+           do_tighten=False, loudnorm=False, preview=False, brand=None,
+           layout="single", centers=(0.25, 0.75)):
+    from captions import write_srt
+    out_dir = (Path(out_dir) if out_dir else default_out()).resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    source = Path(source).resolve()
+    if layout not in {"single", "split"} or (layout == "split" and aspect != "9:16"):
+        raise ValueError("Split-screen requires vertical 9:16 output.")
+    if len(centers) != 2 or any(not math.isfinite(v) or not 0 <= v <= 1 for v in centers):
+        raise ValueError("Speaker centers must be between 0 and 1.")
     full_w, full_h, font_size, margin_v = ASPECTS[aspect]
     if preview:
         # fast 480p-class draft: smaller frame, smaller captions, no poster/meta
@@ -300,6 +315,8 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
     start = float(seg["start"])
     end = float(seg["end"])
     dur = end - start
+    if not math.isfinite(start) or not math.isfinite(end) or start < 0 or dur <= 0:
+        raise ValueError("Invalid clip start/end times.")
     cw, ch, x0, y0 = crop_for(W, H, tw, th)
 
     cap_words = words
@@ -313,10 +330,17 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
               f"{(end - start) - dur:.1f}s removed", flush=True)
         start = 0.0
     build_ass(cap_words, start, start + dur, out_dir / "_caption.ass",
-              tw, th, font_size, margin_v, style)
+              tw, th, font_size, margin_v, style, brand)
 
     needs_track = cw < W * 0.95          # real horizontal crop -> track the speaker
-    if needs_track:
+    if layout == "split":
+        pcw, pch, _, py = crop_for(W, H, tw, th / 2)
+        positions = [max(0, min(W - pcw, round(W * c - pcw / 2))) for c in centers]
+        vf = (f"[0:v]split=2[a][b];[a]crop={pcw}:{pch}:{positions[0]}:{py},"
+              f"scale={tw}:{th // 2}[top];[b]crop={pcw}:{pch}:{positions[1]}:{py},"
+              f"scale={tw}:{th // 2}[bottom];[top][bottom]vstack=inputs=2,subtitles=_caption.ass")
+        mode = "podcast split-screen"
+    elif needs_track:
         track = smooth_track(detect_track(render_src, start, dur, W, workdir), W, cw)
         build_sendcmd(track, cw, out_dir / "_crop.cmd")
         init_x = max(0, min(int(round(track[0][1] - cw / 2.0)), W - cw))
@@ -328,16 +352,31 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
         mode = "full-frame"
 
     suffix = ".preview" if preview else ""
-    out = out_dir / (sanitize(seg.get("hook", "clip")) + suffix + ".mp4")
+    prefix = sanitize(str(seg["id"])) + "-" if seg.get("id") else ""
+    out = out_dir / (prefix + sanitize(seg.get("hook", "clip")) + suffix + ".mp4")
     cmd = ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", str(render_src),
-           "-t", f"{dur:.3f}", "-vf", vf,
+           "-t", f"{dur:.3f}",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-           "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out)]
+           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out)]
+    if brand and brand.get("logo"):
+        width = max(20, round(brand["logo_width"] * tw / 1920))
+        if layout == "single":
+            vf = "[0:v]" + vf
+        graph = (vf + f"[captioned];[1:v]scale={width}:-1[logo];"
+                 "[captioned][logo]overlay=W-w-24:24:eof_action=repeat[v]")
+        pos = cmd.index("-t")
+        cmd[pos:pos] = ["-i", brand["logo"]]
+        cmd[cmd.index("-c:v"):cmd.index("-c:v")] = ["-filter_complex", graph, "-map", "[v]", "-map", "0:a?"]
+    elif layout == "split":
+        cmd[cmd.index("-c:v"):cmd.index("-c:v")] = ["-filter_complex", vf + "[v]", "-map", "[v]", "-map", "0:a?"]
+    else:
+        cmd[cmd.index("-c:v"):cmd.index("-c:v")] = ["-vf", vf]
     if loudnorm:
         cmd[cmd.index("-c:v"):cmd.index("-c:v")] = [
             "-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
     print(">", " ".join(cmd), flush=True)
     subprocess.run(cmd, check=True, cwd=str(out_dir))
+    write_srt(cap_words, start, start + dur, out.with_suffix(".srt"))
 
     for tmpf in (out_dir / "_caption.ass", out_dir / "_crop.cmd"):
         try:
@@ -384,10 +423,15 @@ def main():
     ap.add_argument("--preview", action="store_true",
                     help="render fast 480p drafts (no poster/meta) to review "
                          "clip selection before the full render")
+    ap.add_argument("--brand", help="path to reusable JSON brand preset")
+    ap.add_argument("--layout", choices=["single", "split"], default="single")
+    ap.add_argument("--centers", type=float, nargs=2, default=[0.25, 0.75])
     args = ap.parse_args()
+    from branding import load_brand
+    brand = load_brand(args.brand) if args.brand else None
 
     workdir = Path(args.workdir).resolve()
-    out_dir = Path(args.out) if args.out else default_out()
+    out_dir = (Path(args.out) if args.out else default_out()).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     transcript = json.loads((workdir / "transcript.json").read_text(encoding="utf-8-sig"))
@@ -405,21 +449,26 @@ def main():
           f"(style={args.style}, tighten={args.tighten}) -> {out_dir}", flush=True)
 
     saved = []
+    failed = 0
     for i, seg in enumerate(segments, 1):
         print(f"--- Clip {i}/{len(segments)}: "
               f"{seg.get('hook', '')[:60]!r} (overall {seg.get('overall')}) ---",
               flush=True)
         try:
-            saved.append(str(render(seg, words, source, W, H, workdir, args.aspect,
+            saved.append(str(render({**seg, "id": f"{i:03}"}, words, source, W, H, workdir, args.aspect,
                                     out_dir=out_dir, style=args.style,
                                     do_tighten=args.tighten, loudnorm=args.loudnorm,
-                                    preview=args.preview)))
+                                    preview=args.preview, brand=brand,
+                                    layout=args.layout, centers=args.centers)))
         except subprocess.CalledProcessError as e:
             print(f"ERROR rendering clip {i}: {e}", flush=True)
+            failed += 1
 
     print("RENDERED", len(saved), "clips:", flush=True)
     for s in saved:
         print("  ", s, flush=True)
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

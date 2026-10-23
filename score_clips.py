@@ -365,10 +365,11 @@ def _nearest(values, t):
 # ----------------------------------------------------------------- run / cli
 
 def run(workdir, llm=None, host=OLLAMA_HOST, min_score=None, max_clips=10,
-        min_len=20, max_len=75, search=None, pick=None):
+        min_len=20, max_len=75, search=None, pick=None, semantic=None,
+        embed_model="nomic-embed-text"):
     """Score the transcript in workdir and write workdir/segments.json.
 
-    Returns (segments, mode) where mode is 'ollama' or 'heuristic'.
+    Returns (segments, mode): 'ollama', 'heuristic', or 'semantic'.
     search='keywords' overrides scoring with keyword-search clip finding;
     pick='1,3,5' keeps only the numbered candidates (review workflow).
     """
@@ -379,7 +380,13 @@ def run(workdir, llm=None, host=OLLAMA_HOST, min_score=None, max_clips=10,
 
     mode = "heuristic"
     segments = None
-    if search:
+    if semantic:
+        from semantic import candidates
+        segments = candidates(sentences, semantic, embed_model, workdir, min_len, max_len, max_clips)
+        mode = "semantic"
+        if not segments:
+            raise ValueError("No complete clip windows found for semantic search.")
+    elif search:
         segments = search_candidates(sentences, search, min_len, max_len, max_clips)
         if not segments:
             raise SystemExit(
@@ -433,19 +440,14 @@ def main():
     ap.add_argument("--clips", default=None, metavar="1,3,5",
                     help="render only these numbered candidates from the table "
                          "(review workflow)")
+    ap.add_argument("--semantic", help="search by meaning using local Ollama embeddings")
+    ap.add_argument("--embed-model", default="nomic-embed-text")
     args = ap.parse_args()
     run(args.workdir, args.llm, args.host, args.min_score, args.max_clips,
-        args.min_len, args.max_len, search=args.search, pick=args.clips)
+        args.min_len, args.max_len, search=args.search, pick=args.clips,
+        semantic=args.semantic, embed_model=args.embed_model)
     print("SCORING COMPLETE", flush=True)
 
-
-if __name__ == "__main__":
-    main()
-
-
-# criterion -> weight (hook/energy/arc dominate; matches the README's 8 criteria)
-WEIGHTS = {"hook": 0.20, "shock": 0.10, "humour": 0.05, "controversy": 0.10,
-           "insight": 0.15, "emotion": 0.10, "energy": 0.15, "arc": 0.15}
 
 LLM_SYSTEM = (
     "You are a short-form video editor. You receive a timestamped transcript. "
@@ -460,4 +462,5 @@ LLM_SYSTEM = (
     '"hook": "<3-7 word title>", "overall": <0-10>}}]'
 )
 
-# --- transcript helpers below ---
+if __name__ == "__main__":
+    main()

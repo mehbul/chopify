@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Chopify Studio · Local video workspace</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <aside class="rail">
+      <a class="wordmark" href="/" aria-label="Chopify Studio home"
+        ><span class="mark">c/</span>chopify<span class="version"
+          >STUDIO</span
+        ></a
+      >
+      <div class="local">
+        <span class="dot"></span> Processing stays on this computer
+      </div>
+      <button id="new-project" class="primary wide">＋ New project</button>
+      <div class="rail-heading">
+        YOUR PROJECTS <span id="project-count">0</span>
+      </div>
+      <nav id="projects" aria-label="Saved projects">
+        <p class="muted">No projects yet.</p>
+      </nav>
+      <div class="rail-footer">
+        Your footage. Your machine.<br /><span
+          >Whisper · ffmpeg · optional Ollama</span
+        >
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <span>THE LOCAL CUTTING ROOM</span
+        ><span id="connection"><span class="dot"></span> Local session</span>
+      </header>
+      <div id="notice" role="status" aria-live="polite" hidden></div>
+      <section id="new-view" class="view">
+        <div class="intro">
+          <span class="eyebrow">FROM LONG FORM TO THE GOOD PART</span>
+          <h1>Find the moment.<br /><em>Make the cut.</em></h1>
+          <p>
+            Turn recordings into captioned clips. Review every pick before you
+            export.
+          </p>
+        </div>
+        <form id="create-form" class="panel input-panel">
+          <div class="panel-title">
+            <h2>Start with your footage</h2>
+            <span>ONE VIDEO OR A WHOLE QUEUE</span>
+          </div>
+          <label for="sources">Video URLs or local file paths</label>
+          <textarea
+            id="sources"
+            rows="4"
+            required
+            placeholder="C:\Videos\podcast.mp4&#10;https://youtube.com/watch?v=..."
+          ></textarea>
+          <p class="hint">
+            One source per line. Local files stay in place. URLs download to
+            their project folder.
+          </p>
+          <div class="form-grid">
+            <label
+              >Format<select id="new-aspect">
+                <option>16:9</option>
+                <option>9:16</option>
+                <option>1:1</option>
+              </select></label
+            >
+            <label
+              >Transcription model<select id="new-model">
+                <option>tiny</option>
+                <option>base</option>
+                <option>small</option>
+                <option selected>medium</option>
+                <option>large-v3</option>
+              </select></label
+            >
+            <label
+              >Caption style<select id="new-style">
+                <option>default</option>
+                <option>hormozi</option>
+                <option>mrbeast</option>
+                <option>podcast</option>
+              </select></label
+            >
+          </div>
+          <div class="form-bottom">
+            <span class="hint"
+              >First run downloads the speech model.<br />Jobs run one at a
+              time; successful work is saved.</span
+            ><button class="primary" type="submit">
+              Find clips <span>↗</span>
+            </button>
+          </div>
+        </form>
+        <div class="workflow">
+          <div>
+            <b>Find</b>
+            <p>Transcribe and pick complete moments.</p>
+          </div>
+          <div>
+            <b>Refine</b>
+            <p>Correct captions. Set your framing.</p>
+          </div>
+          <div>
+            <b>Export</b>
+            <p>Choose your clips. Save MP4 + SRT.</p>
+          </div>
+        </div>
+      </section>
+      <section id="project-view" class="view" hidden>
+        <div class="project-heading">
+          <div>
+            <span class="eyebrow" id="project-id"></span>
+            <h1 id="project-title">Project</h1>
+            <p id="project-source" class="muted"></p>
+          </div>
+          <span id="status" class="status"></span>
+        </div>
+        <p id="job-error" role="alert" hidden></p>
+        <div class="workspace">
+          <div class="review-column">
+            <div class="player-wrap">
+              <video id="source-player" controls preload="metadata"></video>
+              <p id="player-hint">
+                Prepare this project to preview the source.
+              </p>
+            </div>
+            <div class="review-toolbar">
+              <div class="tabs">
+                <button id="show-clips" aria-pressed="true">
+                  Clip candidates <span id="candidate-count">0</span></button
+                ><button id="show-transcript" aria-pressed="false">
+                  Transcript
+                </button>
+              </div>
+              <button id="prepare">Find / refresh clips</button>
+            </div>
+            <div id="clip-panel">
+              <div id="candidates" class="candidate-list"></div>
+              <div class="export-bar">
+                <span id="selection-count">0 selected</span
+                ><button id="save-candidates">Save clip edits</button
+                ><button id="preview">Preview selected</button
+                ><button id="render" class="primary">Export selected ↗</button>
+              </div>
+            </div>
+            <div id="transcript-panel" hidden>
+              <p class="hint">
+                Edit words and seconds, then save. Times must stay ordered and
+                inside the video. Use Export to render corrected captions; Find
+                / refresh also recalculates candidates.
+              </p>
+              <div id="transcript-words"></div>
+              <div class="transcript-actions">
+                <button id="words-prev">← Previous</button
+                ><span id="word-page"></span
+                ><button id="words-next">Next →</button
+                ><button id="save-transcript" class="primary">
+                  Save captions
+                </button>
+              </div>
+            </div>
+            <section class="outputs">
+              <div class="panel-title">
+                <h2>Rendered clips</h2>
+                <span id="output-count">0 FILES</span>
+              </div>
+              <div id="outputs">
+                <p class="muted">
+                  Choose candidates and make a preview or export.
+                </p>
+              </div>
+            </section>
+            <details class="log-panel">
+              <summary>Job log</summary>
+              <pre id="log">No job has run yet.</pre>
+            </details>
+          </div>
+          <aside class="settings panel">
+            <div class="panel-title"><h2>Make it yours</h2></div>
+            <form id="settings-form">
+              <label
+                >Format<select name="aspect">
+                  <option>16:9</option>
+                  <option>9:16</option>
+                  <option>1:1</option>
+                </select></label
+              >
+              <label
+                >Framing<select name="layout">
+                  <option value="single">Single frame / face tracking</option>
+                  <option value="split">Podcast · two stacked speakers</option>
+                </select></label
+              >
+              <p class="hint">
+                Split-screen uses 9:16. Set each speaker's horizontal position
+                for fixed-camera footage.
+              </p>
+              <div class="pair">
+                <label
+                  >Top center (0–1)<input
+                    name="center1"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01" /></label
+                ><label
+                  >Bottom center (0–1)<input
+                    name="center2"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                /></label>
+              </div>
+              <label
+                >Caption style<select name="style">
+                  <option>default</option>
+                  <option>hormozi</option>
+                  <option>mrbeast</option>
+                  <option>podcast</option>
+                </select></label
+              >
+              <label
+                >Brand preset<select name="brand_name" id="brand-select">
+                  <option value="">Use caption style</option>
+                </select></label
+              >
+              <div class="pair">
+                <label
+                  >Min seconds<input
+                    name="min_len"
+                    type="number"
+                    min="1"
+                    max="3600"
+                    required /></label
+                ><label
+                  >Max seconds<input
+                    name="max_len"
+                    type="number"
+                    min="1"
+                    max="3600"
+                    required
+                /></label>
+              </div>
+              <label
+                >Maximum clips<input
+                  name="max_clips"
+                  type="number"
+                  min="1"
+                  max="3600"
+                  required
+              /></label>
+              <label
+                >Find specific moments<select id="search-mode">
+                  <option value="auto">Automatic scoring</option>
+                  <option value="search">Keyword search</option>
+                  <option value="semantic">
+                    Search by meaning · local Ollama
+                  </option>
+                </select></label
+              >
+              <label
+                >Topic or keywords<input
+                  id="query"
+                  placeholder="Advice about handling rejection"
+              /></label>
+              <label
+                >Embedding model<input
+                  name="embed_model"
+                  placeholder="nomic-embed-text"
+              /></label>
+              <p class="hint">
+                Semantic search needs Ollama running and a downloaded embedding
+                model.
+              </p>
+              <details>
+                <summary>Transcription & scoring</summary>
+                <label
+                  >Whisper model<select name="whisper_model">
+                    <option>tiny</option>
+                    <option>base</option>
+                    <option>small</option>
+                    <option>medium</option>
+                    <option>large-v3</option>
+                  </select></label
+                ><label
+                  >Compute<select name="device">
+                    <option>cpu</option>
+                    <option>cuda</option>
+                    <option>auto</option>
+                  </select></label
+                ><label
+                  >Local scoring model (optional)<input
+                    name="llm"
+                    placeholder="qwen2.5:7b" /></label
+                ><label
+                  >Minimum score (optional)<input
+                    name="min_score"
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.1"
+                /></label>
+              </details>
+              <label class="check"
+                ><input name="tighten" type="checkbox" /> Remove fillers & long
+                silences</label
+              >
+              <label class="check"
+                ><input name="loudnorm" type="checkbox" /> Normalize audio
+                loudness</label
+              >
+              <button class="wide" type="submit">Save settings</button>
+            </form>
+            <details class="brand-details">
+              <summary>Create a brand preset</summary>
+              <form id="brand-form">
+                <label
+                  >Preset name<input
+                    name="name"
+                    required
+                    pattern="[a-zA-Z0-9_-]{1,60}"
+                    placeholder="my-channel" /></label
+                ><label
+                  >Font family<input name="font" value="Arial Black" required
+                /></label>
+                <div class="pair">
+                  <label
+                    >Text color<input
+                      name="color"
+                      type="color"
+                      value="#ffffff" /></label
+                  ><label
+                    >Highlight<input
+                      name="highlight"
+                      type="color"
+                      value="#ffff00"
+                  /></label>
+                </div>
+                <div class="pair">
+                  <label
+                    >Font size at 1080h<input
+                      name="font_size"
+                      type="number"
+                      min="12"
+                      max="200"
+                      value="72" /></label
+                  ><label
+                    >Bottom margin<input
+                      name="margin"
+                      type="number"
+                      min="0"
+                      max="700"
+                      value="95"
+                  /></label>
+                </div>
+                <label
+                  >Logo file path (optional)<input
+                    name="logo"
+                    placeholder="C:\Brand\logo.png" /></label
+                ><label
+                  >Logo width at 1920w<input
+                    name="logo_width"
+                    type="number"
+                    min="20"
+                    max="600"
+                    value="180" /></label
+                ><button type="submit" class="wide">Save brand preset</button>
+              </form>
+            </details>
+          </aside>
+        </div>
+      </section>
+      <footer>
+        CHOPIFY <span>Open source. No upload. No watermark.</span>
+      </footer>
+    </main>
+  </body>
+</html>
