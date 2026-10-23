@@ -17,10 +17,9 @@
 - Inputs: local MP4, MOV, MKV, WebM, M4V, AVI, or yt-dlp-supported HTTP(S) URLs.
 - Pipeline: source -> faster-whisper timestamps -> heuristic/local LLM/keyword/semantic selection -> review -> ffmpeg.
 - Features: resumable projects, serial batch queue, editable captions and clip ranges, SRT, JSON brand presets with logo, two-panel podcast framing, filler/silence removal, loudness normalization, single-frame face tracking.
-- Images-to-PDF workspace: `/images-to-pdf` in Studio accepts ordered JPEG/PNG/WebP/BMP/TIFF uploads, page reordering, original/grayscale/black-and-white/scan/sepia filters, image adjustments, preview, layout/quality controls, page numbers, and saved exports. All processing is local; no OCR or HEIC import. Limits: 100 pages, 20 MB and 24 megapixels per image.
 - Outputs: 16:9, 9:16, or 1:1 H.264 MP4; AAC if source audio exists; SRT for drafts and final clips; poster and metadata JSON for final clips.
 - Semantic search uses optional local Ollama embeddings at `127.0.0.1:11434`, default `nomic-embed-text`. LLM selection uses a separate optional local chat model.
-- Requirements: Python 3.11+, ffmpeg/ffprobe with libx264/AAC/libass, requirements.txt including Pillow/ReportLab for PDFs. Windows is primary; CI also tests Linux.
+- Requirements: Python 3.11+, ffmpeg/ffprobe with libx264/AAC/libass, requirements.txt. Windows is primary; CI also tests Linux.
 - License/price: MIT; no subscription or paid inference API. Hardware, storage and setup downloads are supplied by the user.
 
 ## Limitations

@@ -8,10 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Images-to-PDF workspace with ordered local uploads, drag/keyboard reordering,
-  duplicate/remove/sort/reverse, per-image filters and adjustments, common preview
-  and export processing, paper/layout/quality controls, page numbers, saved drafts
-  and reopenable PDF export history. Uses Pillow and ReportLab locally.
 - Local browser dashboard with project review, progress, logs, previews, caption
   editing, candidate selection and downloadable exports.
 - Direct local video input (MP4, MOV, MKV, WebM, M4V, AVI).

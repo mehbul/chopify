@@ -25,7 +25,7 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Compile check
-        run: python -m compileall -q chopify.py dashboard.py projects.py captions.py branding.py semantic.py pdf_images.py download_and_transcribe.py score_clips.py render_clips.py tighten.py tools
+        run: python -m compileall -q chopify.py dashboard.py projects.py captions.py branding.py semantic.py download_and_transcribe.py score_clips.py render_clips.py tighten.py tools
 
       - name: Install ffmpeg on Windows
         if: runner.os == 'Windows'

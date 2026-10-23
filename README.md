@@ -11,7 +11,6 @@
 | Feature | How it helps |
 | --- | --- |
 | **Local browser dashboard** | Queue videos, watch job progress, review candidates, edit words and timestamps, and download exports. |
-| **Images → PDF** | Upload pictures, arrange page order, apply image filters and adjustments, preview, and create a PDF with paper/layout/quality controls. |
 | **Local video input** | Use MP4, MOV, MKV, WebM, M4V, or AVI recordings directly, or download a yt-dlp-supported URL. |
 | **Resumable projects** | Reuse matching downloads, transcripts, and completed renders. Retry a failed job without discarding successful clips. |
 | **Batch queue** | Add one source per line in Studio or use a JSON list in the CLI. Each video has an isolated project folder. |
@@ -24,28 +23,6 @@
 | **Face tracking and cleanup** | Single-frame vertical crops follow a detected face; optional filler/silence removal and audio loudness normalization. |
 
 Clip selection favors sentence endings with punctuation. Scores are editing suggestions, **not predictions or guarantees of virality**. Review the results before publishing.
-
-## Turn ordered pictures into a PDF
-
-Open **Images → PDF** in Studio's left sidebar. Add pictures from the file picker
-or drop them into the upload area. The page list preserves selection order; drag
-pages or use arrow buttons to rearrange them, sort naturally by filename,
-reverse, duplicate, or remove pages.
-
-Each image has original color, grayscale, black & white, document scan, and sepia
-filters; brightness, contrast, saturation, sharpness, threshold, rotation, flips,
-auto contrast, inversion, and percentage crop controls. Adjust one image or apply
-its settings to every page. The preview and PDF share the same processing code.
-
-PDF settings include A4/A5/Letter/Legal/image-sized pages, auto/portrait/landscape,
-fit/fill/stretch, margins, background color, 72–300 DPI, JPEG quality, title,
-filename and page numbers. Create the PDF, then download it beneath the preview.
-Recent PDFs can be reopened; the browser also saves your current draft locally.
-
-JPEG, PNG, WebP, BMP and TIFF are supported: up to **100 pages**, **20 MB and
-24 megapixels per uploaded image**. Multi-frame files use their first frame.
-Transparent areas become white. This creates image-based PDFs; OCR/searchable
-text and HEIC conversion are not included. See the [PDF workflow](docs/WORKFLOWS.md#images-to-pdf).
 
 ## Install and open the dashboard
 

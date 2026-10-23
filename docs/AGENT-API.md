@@ -96,30 +96,3 @@ On restart, unfinished jobs become `interrupted` and need explicit retry.
 Project files expose local paths and transcripts; keep them private. Studio is
 for one trusted local user, not a multi-tenant service. Do not expose it through
 a proxy or tunnel.
-
-## Image-to-PDF API
-
-The same session token/Origin/Host requirements apply. This is a separate image
-workflow; `chopify.py SOURCE` remains the video CLI.
-
-| Method | Path | Contract |
-| --- | --- | --- |
-| GET | `/api/pdf/config` | Image/PDF defaults, uploaded asset metadata, recent PDF summaries |
-| POST | `/api/pdf/assets` | Raw image bytes, `Content-Type: application/octet-stream`, URL-encoded filename in `X-File-Name`; returns asset `id`, `name`, `width`, `height` |
-| GET | `/api/pdf/assets/ID/image` | Normalized PNG |
-| GET | `/api/pdf/assets/ID/thumbnail` | Thumbnail PNG |
-| POST | `/api/pdf/preview` | `{ "page": { "asset": "ID", "settings": {} }, "options": {}, "index": 1, "total": 1 }`; returns JPEG |
-| POST | `/api/pdf/export` | `{ "pages": [{ "asset": "ID", "settings": {} }], "options": {} }`; returns manifest with download `url` |
-| GET | `/api/pdf/documents/ID` | Saved page order, image settings, options and export metadata |
-| GET | `/api/pdf/documents/ID/download` | PDF attachment with chosen filename |
-
-Defaults and accepted keys are defined in `pdf_images.IMAGE_DEFAULTS` and
-`PDF_DEFAULTS`. The export's `pages` array defines the exact order and may repeat
-asset IDs. Upload limits are 20 MB and 24 megapixels per image; documents contain
-1–100 pages. Numeric values must be finite and within supported ranges. Export
-is synchronous, and the server serializes PDF preview/export operations.
-
-Python entry points: `pdf_images.upload(root, filename, data)`,
-`pdf_images.preview(root, page, options, index=1, total=1)`, and
-`pdf_images.export(root, pages, options)`. `root` is the project storage directory.
-Saved assets/exports are local private data, not public site resources.
