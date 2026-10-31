@@ -609,6 +609,149 @@ def discover_candidates(sentences, min_len=15, max_len=300,
     return candidates, stats
 
 
+def overlap_ratio(first, second):
+    """Overlap divided by the shorter clip duration; 0 when they do not touch."""
+    overlap = max(0.0, min(first["end"], second["end"])
+                  - max(first["start"], second["start"]))
+    shorter = min(first["end"] - first["start"], second["end"] - second["start"])
+    return overlap / shorter if shorter > 0 else 0.0
+
+
+def inside_band(item, preferred_len, band):
+    """True when a duration sits inside the preferred or source-appropriate band."""
+    if preferred_len is not None:
+        tolerance = 0.25 * preferred_len
+        low, high = preferred_len - tolerance, preferred_len + tolerance
+    else:
+        low, high = band
+    return low <= item["duration"] <= high
+
+
+def _validated_candidate(item):
+    record = dict(item)
+    try:
+        start = float(record["start"])
+        end = float(record["end"])
+        overall = float(record.get("overall", 0.0))
+    except (KeyError, TypeError, ValueError):
+        raise ValueError("Candidate times and scores must be finite numbers.")
+    if not all(math.isfinite(value) for value in (start, end, overall)) or end <= start:
+        raise ValueError("Candidate times and scores must be finite numbers.")
+    record["start"] = start
+    record["end"] = end
+    record["duration"] = end - start
+    record["overall"] = overall
+    return record
+
+
+def dedupe_candidates(candidates, preferred_len=None, band=(30, 120),
+                      min_score=None):
+    """Keep one strong representative per overlapping run of windows."""
+    records = sorted((_validated_candidate(item) for item in candidates),
+                     key=lambda item: (-item["overall"], item["start"],
+                                       item["duration"]))
+    kept = []
+    for record in records:
+        drop = False
+        for index, existing in enumerate(kept):
+            ratio = overlap_ratio(record, existing)
+            if ratio > 0.55:
+                replacement = (
+                    abs(record["overall"] - existing["overall"]) <= 0.25 + 1e-9
+                    and record["duration"] < existing["duration"]
+                    and inside_band(record, preferred_len, band)
+                    and (min_score is None or record["overall"] >= min_score - 1e-9))
+                if replacement:
+                    kept[index] = record
+                    drop = True
+                    break
+                if record["overall"] > existing["overall"] + 1e-9:
+                    kept.pop(index)
+                    break
+                drop = True
+                break
+            if (abs(record["start"] - existing["start"]) <= 1.5
+                    and ratio > 0.30):
+                drop = True
+                break
+        if not drop:
+            kept.append(record)
+    kept.sort(key=lambda item: (item["start"], item["end"]))
+    return kept
+
+
+PUBLIC_SEGMENT_KEYS = ("start", "end", "hook", "overall", "duration", "rank",
+                       "raw_score", "score_parts", "reason")
+
+
+def _public_segment(item):
+    segment = {
+        "start": item["start"],
+        "end": item["end"],
+        "hook": item.get("hook", "clip"),
+        "overall": item["overall"],
+        "duration": round(float(item.get("duration", item["end"] - item["start"])), 2),
+        "raw_score": item.get("raw_score", item["overall"]),
+        "score_parts": item.get("score_parts", {}),
+        "reason": str(item.get("reason", ""))[:160],
+    }
+    return segment
+
+
+def select_candidates(candidates, min_score=8.0, max_clips=None,
+                      preferred_len=None, band=(30, 120), dedupe=True,
+                      discovery=None, mode="heuristic"):
+    """Dedupe, threshold, cap, rank, and return (segments, selection_stats)."""
+    if isinstance(min_score, bool) or not isinstance(min_score, (int, float)) \
+            or not math.isfinite(min_score) or not 0 <= min_score <= 10:
+        raise ValueError("Minimum score must be between 0 and 10.")
+    if max_clips is not None and (isinstance(max_clips, bool)
+                                  or not isinstance(max_clips, int)
+                                  or max_clips < 1):
+        raise ValueError("Maximum clips must be a positive integer or None.")
+    discovery = discovery or {}
+    records = dedupe_candidates(candidates, preferred_len, band, min_score) \
+        if dedupe else [_validated_candidate(item) for item in candidates]
+    passing = [item for item in records if item["overall"] >= min_score]
+    if max_clips is not None:
+        passing = sorted(passing, key=lambda item: (
+            -item["overall"], item["start"], item["duration"]))[:max_clips]
+
+    public = [_public_segment(item) for item in passing]
+    ranked = sorted(public, key=lambda item: (
+        -item["overall"], item["start"], item["duration"]))
+    for rank, segment in enumerate(ranked, 1):
+        segment["rank"] = rank
+    public.sort(key=lambda item: (item["start"], item["end"]))
+    segments = [{key: segment[key] for key in PUBLIC_SEGMENT_KEYS}
+                for segment in public]
+
+    scores = [item["overall"] for item in records]
+    durations = [item["duration"] for item in records]
+    passing_scores = [item["overall"] for item in passing]
+    stats = {
+        "mode": mode,
+        "source_duration": discovery.get("source_duration"),
+        "seeds": discovery.get("seeds", 0),
+        "windows_scanned": discovery.get("windows_scanned", 0),
+        "candidates": len(records),
+        "passing": len(passing),
+        "score_min": min(scores) if scores else None,
+        "score_max": max(scores) if scores else None,
+        "passing_score_min": min(passing_scores) if passing_scores else None,
+        "passing_score_max": max(passing_scores) if passing_scores else None,
+        "duration_min": min(durations) if durations else None,
+        "duration_max": max(durations) if durations else None,
+        "min_score": min_score,
+        "preferred_len": preferred_len,
+        "analysis_floor": min(8.0, min_score),
+        "content_profile": discovery.get("content_profile", "mixed"),
+        "source_energy": discovery.get("source_energy", 0.5),
+        "evidence_available": {"audio": False, "visual": False},
+    }
+    return segments, stats
+
+
 def make_hook(text, max_words=7):
     words = [_norm_token(w) for w in text.split()]
     words = [w for w in words if w and w not in FILLER_TOKENS]
@@ -665,26 +808,17 @@ def _make_segment(sentences, a, b):
     }
 
 
-def build_candidates(sentences, min_len, max_len, max_clips):
-    """Seed windows at the highest-scoring sentences, grow to min_len, dedup, sort.
-    Windows always end on a complete sentence (complete-thought rule)."""
-    scored = {i: score_sentence(s)[1] for i, s in enumerate(sentences)}
-    order = sorted(range(len(sentences)), key=lambda i: scored[i], reverse=True)
-    taken = [False] * len(sentences)
-    accepted = []
-
-    for seed in order:
-        if taken[seed] or len(accepted) >= max_clips:
-            continue
-        w = _grow_window(sentences, seed, taken, min_len, max_len)
-        if w is None:
-            continue
-        a, b = w
-        accepted.append(_make_segment(sentences, a, b))
-        for k in range(a, b + 1):
-            taken[k] = True
-    accepted.sort(key=lambda s: s["start"])
-    return accepted
+def build_candidates(sentences, min_len, max_len, max_clips=None,
+                     min_score=None, preferred_len=None):
+    """Start-sorted deduped candidates, including those below the threshold."""
+    found, _ = discover_candidates(sentences, min_len, max_len,
+                                   preferred_len=preferred_len)
+    kept = dedupe_candidates(found, preferred_len=preferred_len,
+                             min_score=min_score)
+    if max_clips is not None:
+        kept = sorted(kept, key=lambda item: (
+            -item["overall"], item["start"], item["duration"]))[:max_clips]
+    return sorted(kept, key=lambda item: (item["start"], item["end"]))
 
 
 # ----------------------------------------------------------------- search/pick

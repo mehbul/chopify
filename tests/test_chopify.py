@@ -192,11 +192,12 @@ class TestCandidates:
             assert s["hook"]
             assert 0 <= s["overall"] <= 10
 
-    def test_candidates_non_overlapping(self, sample_words):
+    def test_candidates_overlap_no_more_than_55_percent(self, sample_words):
         sents = score_clips.sentenceize(sample_words)
         segs = score_clips.build_candidates(sents, min_len=5, max_len=30, max_clips=10)
-        for a, b in zip(segs, segs[1:]):
-            assert a["end"] <= b["start"] + 0.01
+        for i, a in enumerate(segs):
+            for b in segs[i + 1:]:
+                assert score_clips.overlap_ratio(a, b) <= 0.55
 
 
 def numbered_sentences(count=8, step=5.0):
@@ -289,6 +290,108 @@ class TestEndpointChoice:
         kept = score_clips.choose_seed_endpoints(choices, preferred_len=45,
                                                  band=(30, 120))
         assert len(kept) == 1
+
+
+def candidate(start, end, score, kind="quality_best"):
+    return {"start": start, "end": end, "duration": end - start,
+            "overall": score, "raw_score": score,
+            "hook": f"clip {start}", "score_parts": {"text_score": score},
+            "endpoint_kind": kind, "reason": "test"}
+
+
+class TestOverlap:
+    def test_overlap_ratio_uses_shorter_clip(self):
+        assert score_clips.overlap_ratio(
+            candidate(0, 30, 8.0), candidate(15, 60, 8.0)) == pytest.approx(0.5)
+        assert score_clips.overlap_ratio(
+            candidate(0, 10, 8.0), candidate(5, 15, 8.0)) == pytest.approx(0.5)
+        assert score_clips.overlap_ratio(
+            candidate(0, 10, 8.0), candidate(10, 20, 8.0)) == 0.0
+
+
+class TestDedupe:
+    def test_drops_overlap_above_55_percent(self):
+        kept = score_clips.dedupe_candidates(
+            [candidate(0, 40, 8.5), candidate(10, 50, 8.0)])
+        assert len(kept) == 1
+        assert kept[0]["overall"] == 8.5
+
+    def test_keeps_overlap_at_or_below_55_percent(self):
+        kept = score_clips.dedupe_candidates(
+            [candidate(0, 40, 8.5), candidate(22, 62, 8.0)])
+        assert len(kept) == 2
+
+    def test_tighter_clip_replaces_longer_within_quarter_point(self):
+        kept = score_clips.dedupe_candidates(
+            [candidate(0, 90, 8.4), candidate(0, 45, 8.2)],
+            preferred_len=45, band=(30, 120))
+        assert len(kept) == 1
+        assert kept[0]["duration"] == 45
+
+    def test_failing_tighter_clip_does_not_replace_passing_longer_clip(self):
+        kept = score_clips.dedupe_candidates(
+            [candidate(0, 90, 8.4), candidate(0, 45, 8.2)],
+            preferred_len=45, band=(30, 120), min_score=8.3)
+        assert len(kept) == 1
+        assert kept[0]["duration"] == 90
+
+    def test_near_identical_start_dropped_when_overlap_above_30_percent(self):
+        kept = score_clips.dedupe_candidates(
+            [candidate(0, 60, 8.6), candidate(1, 61, 8.1)])
+        assert len(kept) == 1
+        assert kept[0]["overall"] == 8.6
+
+
+class TestSelection:
+    def test_threshold_is_inclusive(self):
+        segments, stats = score_clips.select_candidates(
+            [candidate(0, 40, 8.0), candidate(50, 90, 7.99)], min_score=8.0)
+        assert [s["overall"] for s in segments] == [8.0]
+        assert stats["passing"] == 1
+
+    def test_none_cap_returns_everything(self):
+        segments, _ = score_clips.select_candidates(
+            [candidate(i * 60, i * 60 + 30, 8.0 + i / 10) for i in range(4)],
+            min_score=8.0)
+        assert len(segments) == 4
+
+    def test_explicit_cap_takes_top_scores(self):
+        segments, _ = score_clips.select_candidates(
+            [candidate(i * 60, i * 60 + 30, 8.0 + i / 10) for i in range(4)],
+            min_score=8.0, max_clips=2)
+        assert len(segments) == 2
+        assert {s["overall"] for s in segments} == {8.2, 8.3}
+
+    def test_segments_are_start_sorted_with_rank(self):
+        segments, _ = score_clips.select_candidates(
+            [candidate(120, 160, 8.1), candidate(0, 40, 8.7),
+             candidate(60, 100, 8.3)], min_score=8.0)
+        assert [s["start"] for s in segments] == [0, 60, 120]
+        assert [s["rank"] for s in segments] == [1, 2, 3]
+
+    def test_zero_passing_writes_empty_stats(self):
+        segments, stats = score_clips.select_candidates(
+            [candidate(0, 40, 7.2)], min_score=8.0)
+        assert segments == []
+        assert stats["passing"] == 0
+        assert stats["passing_score_min"] is None
+        assert stats["score_min"] == 7.2
+
+
+class TestBuildCandidatesCompat:
+    def test_returns_deduped_start_sorted_candidates_below_threshold(self):
+        sents = numbered_sentences()
+        segs = score_clips.build_candidates(
+            sents, min_len=5, max_len=30, max_clips=None)
+        starts = [s["start"] for s in segs]
+        assert starts == sorted(starts)
+        assert any(s["overall"] < 8.0 for s in segs)
+
+    def test_optional_cap_is_applied_after_dedupe(self):
+        sents = numbered_sentences()
+        segs = score_clips.build_candidates(
+            sents, min_len=5, max_len=30, max_clips=2)
+        assert len(segs) == 2
 
 
 class TestNearest:
