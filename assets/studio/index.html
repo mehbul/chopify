@@ -83,6 +83,15 @@
             <label
               >Caption style<select id="new-style">
                 <option>default</option>
+                <option>clean</option>
+                <option>minimal</option>
+                <option>bold</option>
+                <option>boxed</option>
+                <option>karaoke</option>
+                <option>pop</option>
+                <option>neon</option>
+                <option>typewriter</option>
+                <option>retro</option>
                 <option>hormozi</option>
                 <option>mrbeast</option>
                 <option>podcast</option>
@@ -127,6 +136,14 @@
           <div class="review-column">
             <div class="player-wrap">
               <video id="source-player" controls preload="metadata"></video>
+              <div
+                id="caption-overlay"
+                class="caption-overlay caption-bottom"
+                aria-hidden="true"
+                hidden
+              >
+                <div id="caption-cue" class="caption-cue"></div>
+              </div>
               <p id="player-hint">
                 Prepare this project to preview the source.
               </p>
@@ -137,6 +154,9 @@
                   Clip candidates <span id="candidate-count">0</span></button
                 ><button id="show-transcript" aria-pressed="false">
                   Transcript
+                </button
+                ><button id="show-captions" aria-pressed="false">
+                  Captions
                 </button>
               </div>
               <button id="prepare">Find / refresh clips</button>
@@ -165,6 +185,24 @@
                   Save captions
                 </button>
               </div>
+            </div>
+            <div id="caption-panel" hidden>
+              <p class="hint">
+                Scrub or play the source to line up the look. This overlay is a
+                close approximation of the burnt-in captions; the exported MP4
+                is the source of truth. Hide words and per-word emphasis flags
+                from the transcript are respected.
+              </p>
+              <div class="caption-toolbar">
+                <button id="caption-preview">Preview 5s</button>
+                <span id="caption-summary" class="muted"></span>
+              </div>
+              <div
+                id="caption-presets"
+                class="caption-presets"
+                role="group"
+                aria-label="Caption presets"
+              ></div>
             </div>
             <section class="outputs">
               <div class="panel-title">
@@ -222,6 +260,15 @@
               <label
                 >Caption style<select name="style">
                   <option>default</option>
+                  <option>clean</option>
+                  <option>minimal</option>
+                  <option>bold</option>
+                  <option>boxed</option>
+                  <option>karaoke</option>
+                  <option>pop</option>
+                  <option>neon</option>
+                  <option>typewriter</option>
+                  <option>retro</option>
                   <option>hormozi</option>
                   <option>mrbeast</option>
                   <option>podcast</option>
@@ -319,6 +366,187 @@
               >
               <button class="wide" type="submit">Save settings</button>
             </form>
+            <details class="caption-details" open>
+              <summary>Caption look</summary>
+              <form id="caption-form">
+                <label
+                  >Starting preset<select id="caption-preset" name="preset">
+                    <option>default</option>
+                    <option>clean</option>
+                    <option>minimal</option>
+                    <option>bold</option>
+                    <option>boxed</option>
+                    <option>karaoke</option>
+                    <option>pop</option>
+                    <option>neon</option>
+                    <option>typewriter</option>
+                    <option>retro</option>
+                    <option>hormozi</option>
+                    <option>mrbeast</option>
+                    <option>podcast</option>
+                  </select></label
+                >
+                <p class="hint">
+                  A preset loads a starting style. Save caption style to keep
+                  edits with this project.
+                </p>
+                <div class="pair">
+                  <label
+                    >Words per cue<input
+                      name="words_per_cue"
+                      type="number"
+                      min="1"
+                      max="8"
+                      value="3"
+                      required /></label
+                  ><label
+                    >Position<select name="position">
+                      <option value="bottom">Bottom</option>
+                      <option value="center">Center</option>
+                      <option value="top">Top</option>
+                    </select></label
+                  >
+                </div>
+                <div class="pair">
+                  <label
+                    >Animation<select name="animation">
+                      <option value="none">None</option>
+                      <option value="pop">Pop</option>
+                      <option value="bounce">Bounce</option>
+                      <option value="fade">Fade</option>
+                      <option value="typewriter">Typewriter</option>
+                    </select></label
+                  ><label
+                    >Highlight<select name="highlight_mode">
+                      <option value="word">Active word</option>
+                      <option value="karaoke">Karaoke</option>
+                      <option value="none">None</option>
+                    </select></label
+                  >
+                </div>
+                <label class="check"
+                  ><input name="uppercase" type="checkbox" /> Uppercase
+                  captions</label
+                >
+                <div class="pair">
+                  <label
+                    >Background<select name="background">
+                      <option value="none">None</option>
+                      <option value="box">Box</option>
+                    </select></label
+                  ><label
+                    >Box color<input
+                      name="background_color"
+                      type="color"
+                      value="#000000"
+                  /></label>
+                </div>
+                <label
+                  >Box opacity (0–100)<input
+                    name="background_opacity"
+                    type="number"
+                    min="0"
+                    max="100"
+                    value="70"
+                /></label>
+                <div class="pair">
+                  <label
+                    >Outline (0–12)<input
+                      name="outline"
+                      type="number"
+                      min="0"
+                      max="12"
+                      value="5" /></label
+                  ><label
+                    >Shadow (0–12)<input
+                      name="shadow"
+                      type="number"
+                      min="0"
+                      max="12"
+                      value="2"
+                  /></label>
+                </div>
+                <label
+                  >Font family<input
+                    name="font"
+                    value="Arial Black"
+                    required /></label
+                >
+                <div class="pair">
+                  <label
+                    >Font size at 1080h<input
+                      name="font_size"
+                      type="number"
+                      min="12"
+                      max="200"
+                      value="72"
+                      required /></label
+                  ><label
+                    >Margin at 1080h<input
+                      name="margin"
+                      type="number"
+                      min="0"
+                      max="700"
+                      value="95"
+                      required
+                  /></label>
+                </div>
+                <div class="pair">
+                  <label
+                    >Text color<input
+                      name="color"
+                      type="color"
+                      value="#ffffff" /></label
+                  ><label
+                    >Highlight<input
+                      name="highlight"
+                      type="color"
+                      value="#ffff00"
+                  /></label>
+                </div>
+                <div class="pair">
+                  <label
+                    >Emphasis color<input
+                      name="emphasis_color"
+                      type="color"
+                      value="#ffd400" /></label
+                  ><label
+                    >Outline color<input
+                      name="outline_color"
+                      type="color"
+                      value="#000000"
+                  /></label>
+                </div>
+                <label class="check"
+                  ><input name="emphasis" type="checkbox" /> Auto-emphasise
+                  numbers and power words</label
+                >
+                <label class="check"
+                  ><input name="emoji" type="checkbox" /> Add one emoji per
+                  cue</label
+                >
+                <button class="wide primary" type="submit">
+                  Save caption style
+                </button>
+                <label
+                  >Preset name<input
+                    id="caption-preset-name"
+                    pattern="[a-zA-Z0-9_-]{1,60}"
+                    placeholder="my-look"
+                /></label>
+                <button
+                  class="wide"
+                  type="button"
+                  id="save-caption-preset"
+                >
+                  Save as preset
+                </button>
+                <p class="hint">
+                  A saved preset appears in the brand dropdown and on future
+                  projects.
+                </p>
+              </form>
+            </details>
             <details class="brand-details">
               <summary>Create a brand preset</summary>
               <form id="brand-form">

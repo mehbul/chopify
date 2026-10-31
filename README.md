@@ -14,8 +14,9 @@
 | **Local video input** | Use MP4, MOV, MKV, WebM, M4V, or AVI recordings directly, or download a yt-dlp-supported URL. |
 | **Resumable projects** | Reuse matching downloads, transcripts, and completed renders. Retry a failed job without discarding successful clips. |
 | **Batch queue** | Add one source per line in Studio or use a JSON list in the CLI. Each video has an isolated project folder. |
+| **Caption Studio** | Choose from 13 caption looks, then tune font, size, colors, outline, shadow, cue length, position, box background, and word motion. A live overlay follows the source; automatic emphasis and emoji are optional. |
 | **Caption editor and SRT export** | Fix transcription mistakes before rendering. Burnt captions and SRT files share the same timeline, including tightened cuts. |
-| **Reusable brand presets** | Save caption font, text/highlight colors, size, position, and an optional logo in JSON. |
+| **Reusable brand presets** | Save a caption look and optional logo in JSON. A named preset, brand preset, and project override layer in that order. |
 | **Semantic clip search** | Search for a concept such as “handling rejection” using optional local Ollama embeddings, even if those exact words are absent. |
 | **Podcast split-screen** | Stack two adjustable horizontal crops in a vertical clip for fixed-camera two-person footage. |
 | **Clip selection and review** | Heuristic scoring, optional local LLM scoring, keyword search, numbered selection, editable start/end times, and fast draft previews. |
@@ -37,7 +38,7 @@ python -m venv .venv
 .venv\Scripts\python dashboard.py
 ```
 
-Studio opens at **http://127.0.0.1:8765**. Paste a local video path or URL, then click **Find clips**. Add multiple sources on separate lines to queue them. After processing, review candidates, edit captions, save your settings, and export selected clips. Stop the server with Ctrl+C. To change the port:
+Studio opens at **http://127.0.0.1:8765**. Paste a local video path or URL, then click **Find clips**. Add multiple sources on separate lines to queue them. After processing, review candidates, edit captions, style them in the **Captions** tab, save your settings, and export selected clips. Stop the server with Ctrl+C. To change the port:
 
 ```powershell
 .venv\Scripts\python dashboard.py --port 8766 --projects-dir projects
@@ -68,6 +69,10 @@ python chopify.py "recording.mp4" --semantic "advice about handling rejection"
 # Brand and podcast framing
 python chopify.py "podcast.mp4" --brand examples/brand.json --tighten --loudnorm
 python chopify.py "podcast.mp4" --aspect 9:16 --layout split --centers 0.25 0.75
+
+# Caption Studio from the CLI
+python chopify.py "recording.mp4" --style bold --words-per-cue 2 --caption-position top --emoji --emphasis
+python chopify.py "recording.mp4" --caption-json my-caption-style.json
 
 # Process a queue of videos into separate projects
 python chopify.py --batch examples/batch.json --projects-dir projects
@@ -104,6 +109,12 @@ Chopify does not upload footage or transcripts to a hosted processing service. V
 
 Yes. Open a prepared project in Studio, choose **Transcript**, edit word text or start/end times, and **Save captions**. Export again to apply the edits. Each draft and finished clip includes an SRT file relative to that clip's timeline. See the [caption workflow](docs/WORKFLOWS.md#edit-captions-and-export-srt).
 
+### Can I style and animate captions?
+
+Yes. Open a prepared project, choose **Captions**, and start from one of 13 presets: `default`, `clean`, `minimal`, `bold`, `boxed`, `karaoke`, `pop`, `neon`, `typewriter`, `retro`, `hormozi`, `mrbeast`, or `podcast`. Adjust font, size, margin, colors, outline, shadow, box background, words per cue, position, motion, and word highlighting. **Preview 5s** plays a selected clip range with the overlay.
+
+The overlay approximates the libass render; the exported MP4 is authoritative. Style precedence is named preset, then brand preset, then the project's caption override. **Save as preset** stores a reusable named look under Brand presets. Automatic emphasis colors up to two numbers, money amounts, ALL-CAPS words, or power words per cue. Emoji adds one relevant emoji per cue when a rule matches, and glyphs depend on an installed system emoji font.
+
 ### Does split-screen identify who is speaking?
 
 No. Split-screen uses two adjustable horizontal crop centers for a fixed camera and stacks the crops vertically. It is not speaker diarization or automatic two-face tracking. Use a draft to tune the positions before final export.
@@ -132,4 +143,4 @@ python -m compileall -q chopify.py dashboard.py projects.py captions.py branding
 
 Tests include real ffmpeg renders when ffmpeg is installed; speech models and Ollama are not required for the automated suite. Keep videos, transcripts, generated clips, and local brand presets out of Git. Use footage you have permission to process.
 
-Maintained by [mehbul](https://github.com/mehbul). [MIT license](LICENSE). Last documentation update: **2026-10-23**.
+Maintained by [mehbul](https://github.com/mehbul). [MIT license](LICENSE). Last documentation update: **2026-10-31**.

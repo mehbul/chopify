@@ -15,6 +15,7 @@ import webbrowser
 
 import branding
 import projects
+import render_clips
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "assets" / "studio"
@@ -138,7 +139,34 @@ class Handler(BaseHTTPRequestHandler):
             parts = unquote(urlsplit(self.path).path).strip("/").split("/")
             if parts == ["api", "config"]:
                 brands = sorted(p.stem for p in (self.app.root / "brands").glob("*.json"))
-                return self.send_json({"token": self.app.token, "defaults": projects.DEFAULT_OPTIONS, "brands": brands})
+                caption_brands = {}
+                for brand_path in (self.app.root / "brands").glob("*.json"):
+                    try:
+                        brand = branding.validate_brand(
+                            projects.read_json(brand_path), brand_path.parent)
+                    except (ValueError, OSError, KeyError):
+                        continue
+                    caption_brands[brand_path.stem] = {
+                        key: brand[key] for key in branding.CAPTION_FIELDS
+                        if brand[key] is not None
+                    }
+                return self.send_json({
+                    "token": self.app.token,
+                    "defaults": projects.DEFAULT_OPTIONS,
+                    "brands": brands,
+                    "caption_brands": caption_brands,
+                    "caption_presets": render_clips.CAPTION_STYLES,
+                    "caption_defaults": branding.CAPTION_DEFAULTS,
+                    "caption_aspects": {
+                        name: {"font_size": size, "margin": margin}
+                        for name, (_, _, size, margin) in render_clips.ASPECTS.items()
+                    },
+                    "caption_power_words": sorted(render_clips.POWER_WORDS),
+                    "caption_emoji_rules": [
+                        {"words": list(stems), "emoji": emoji}
+                        for stems, emoji in render_clips.EMOJI_RULES
+                    ],
+                })
             if parts == ["api", "projects"]:
                 return self.send_json({"projects": self.app.list_projects()})
             if len(parts) == 3 and parts[:2] == ["api", "projects"]:

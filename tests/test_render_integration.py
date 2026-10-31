@@ -78,6 +78,27 @@ def test_tightened_srt_tracks_actual_shortened_video(source, tmp_path):
     assert " um " not in srt
 
 
+def test_boxed_pop_caption_render_and_matching_srt_groups(source, tmp_path):
+    words = [{"word": "Hello", "start": 0.5, "end": 0.8},
+             {"word": "skip", "start": 0.9, "end": 1.0, "hidden": True},
+             {"word": "world!", "start": 1.1, "end": 1.4},
+             {"word": "again", "start": 1.5, "end": 2.4}]
+    out = render_clips.render(
+        {"id": "001", "start": 0.5, "end": 2.5, "hook": "boxed pop"},
+        words, source, 640, 360, tmp_path, "16:9", out_dir=tmp_path / "render",
+        preview=True, caption={"background": "box", "background_color": "#112233",
+                               "background_opacity": 70, "animation": "pop",
+                               "words_per_cue": 2, "uppercase": True})
+    streams = json.loads(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(out)],
+        capture_output=True, text=True, check=True).stdout)["streams"]
+    assert {s["codec_name"] for s in streams} >= {"h264", "aac"}
+    srt = out.with_suffix(".srt").read_text(encoding="utf-8")
+    assert srt.count("-->") == 2
+    assert "skip" not in srt
+    assert "Hello world!" in srt
+
+
 def test_cli_render_preserves_project_settings_and_copies_exports(source, tmp_path):
     import os
     import sys

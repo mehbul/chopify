@@ -263,8 +263,8 @@ class TestASS:
                                style_name="default")
         render_clips.build_ass(sample_words, 0.0, 48.0, out_r, 1920, 1080, 72, 95,
                                style_name="hormozi")
-        assert "&H00FFFF&" in out_y.read_text(encoding="utf-8")
-        assert "&H0000FF&" in out_r.read_text(encoding="utf-8")   # red highlight
+        assert "&H0000FFFF&" in out_y.read_text(encoding="utf-8")
+        assert "&H000000FF&" in out_r.read_text(encoding="utf-8")   # red highlight
 
     def test_ass_escapes_braces(self, tmp_path):
         w = [{"word": "{weird}", "start": 0.0, "end": 0.3}]

@@ -18,7 +18,7 @@ DEFAULT_OPTIONS = {"aspect": "16:9", "style": "default", "tighten": False,
                    "min_len": 20, "max_len": 75, "max_clips": 10, "min_score": None,
                    "llm": None, "search": None, "semantic": None,
                    "embed_model": "nomic-embed-text", "brand": None,
-                   "layout": "single", "centers": [0.25, 0.75]}
+                   "layout": "single", "centers": [0.25, 0.75], "caption": None}
 
 
 def digest(value):
@@ -75,6 +75,8 @@ def validate_options(options):
     for key in ("tighten", "loudnorm"):
         if not isinstance(result[key], bool):
             raise ValueError(f"{key} must be true or false.")
+    if result["caption"] is not None:
+        result["caption"] = branding.validate_caption(result["caption"])
     return result
 
 
@@ -215,7 +217,8 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
                 output = render_clips.render({**segment, "id": segment["id"] + "-" + key[:8]}, data["words"], source, W, H, path,
                     options["aspect"], out_dir=out, style=options["style"],
                     do_tighten=options["tighten"], loudnorm=options["loudnorm"], preview=preview,
-                    brand=brand, layout=options["layout"], centers=options["centers"])
+                    brand=brand, layout=options["layout"], centers=options["centers"],
+                    caption=options["caption"])
                 state["renders"][key] = str(output)
                 outputs.append(str(output))
                 save_project(path, state)

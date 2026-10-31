@@ -19,7 +19,14 @@ def update_transcript(data, words):
                 or not math.isfinite(start) or not math.isfinite(end)
                 or start < previous - 0.001 or end <= start or end > duration + 0.001):
             raise ValueError("Words must have text and ordered, non-overlapping times within the video.")
-        clean.append({"word": text, "start": start, "end": end})
+        entry = {"word": text, "start": start, "end": end}
+        for flag in ("hidden", "emphasis"):
+            if flag in item:
+                if not isinstance(item[flag], bool):
+                    raise ValueError("Word flags must be true or false.")
+                if item[flag]:
+                    entry[flag] = True
+        clean.append(entry)
         previous = end
     result = copy.deepcopy(data)
     result["words"] = clean
@@ -37,7 +44,10 @@ def srt_time(seconds):
 
 
 def write_srt(words, start, end, path, group_size=8):
-    selected = [w for w in words if w["end"] > start and w["start"] < end]
+    if isinstance(group_size, bool) or not isinstance(group_size, int) or not 1 <= group_size <= 100:
+        raise ValueError("Caption group size must be an integer from 1 to 100.")
+    selected = [w for w in words
+                if not w.get("hidden") and w["end"] > start and w["start"] < end]
     blocks = []
     for i in range(0, len(selected), group_size):
         group = selected[i:i + group_size]

@@ -8,7 +8,7 @@
     </title>
     <meta
       name="description"
-      content="Turn recordings and YouTube videos into captioned Shorts, Reels and TikTok clips locally. Free open-source dashboard, batch queue, SRT editing and podcast framing."
+      content="Turn recordings and YouTube videos into styled, captioned Shorts, Reels and TikTok clips locally. Free open-source dashboard, Caption Studio, SRT editing and podcast framing."
     />
     <meta name="robots" content="index,follow,max-image-preview:large" />
     <link rel="canonical" href="https://mehbul.github.io/chopify/" />
@@ -17,7 +17,7 @@
     <meta property="og:title" content="Chopify — your footage, your machine" />
     <meta
       property="og:description"
-      content="Free local video clipping with a review dashboard, editable captions, SRT exports, branding, semantic search and podcast split-screen."
+      content="Free local video clipping with a review dashboard, editable and styled captions, SRT exports, branding, semantic search and podcast split-screen."
     />
     <meta property="og:url" content="https://mehbul.github.io/chopify/" />
     <meta
@@ -58,7 +58,7 @@
             "@id": "https://mehbul.github.io/chopify/#software",
             "name": "Chopify",
             "url": "https://mehbul.github.io/chopify/",
-            "description": "Free local video clipper with a browser dashboard, resumable batch projects, editable captions, SRT exports, branding, semantic search, and podcast split-screen.",
+            "description": "Free local video clipper with a browser dashboard, resumable batch projects, editable and styled captions, SRT exports, branding, semantic search, and podcast split-screen.",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": "Windows",
             "programmingLanguage": "Python",
@@ -82,6 +82,9 @@
               "Local video input",
               "Resumable batch projects",
               "Caption editing and SRT export",
+              "13-preset Caption Studio",
+              "Source-synced caption preview",
+              "Automatic emphasis and emoji",
               "Brand presets",
               "Optional local semantic search",
               "Podcast split-screen"
@@ -92,7 +95,7 @@
             "@id": "https://mehbul.github.io/chopify/#page",
             "url": "https://mehbul.github.io/chopify/",
             "name": "Chopify — Free Local AI Video Clipper",
-            "dateModified": "2026-10-23",
+            "dateModified": "2026-10-31",
             "inLanguage": "en",
             "mainEntity": {
               "@id": "https://mehbul.github.io/chopify/#software"
@@ -120,8 +123,8 @@
         <h1>The good parts.<br /><em>Ready to share.</em></h1>
         <p class="lead">
           Chopify turns long recordings and YouTube videos into captioned clips
-          for Shorts, Reels, and TikTok. Find moments, fix captions, review
-          drafts, and export—all locally.
+          for Shorts, Reels, and TikTok. Find moments, fix and style captions,
+          review drafts, and export—all locally.
         </p>
         <div class="actions">
           <a class="button" href="#install">Open your cutting room ↗</a
@@ -188,11 +191,22 @@
             </p>
           </article>
           <article>
+            <span class="tag">STYLE</span>
+            <h3>Caption Studio</h3>
+            <p>
+              Start from 13 distinct looks, then tune font, size, colors,
+              outline, shadow, cue length, position, box background, and word
+              motion. A live overlay follows the source, with optional automatic
+              emphasis and emoji.
+            </p>
+          </article>
+          <article>
             <span class="tag">IDENTITY</span>
             <h3>Make the style yours</h3>
             <p>
-              Reuse JSON presets for fonts, text and highlight colors, size,
-              position, and an optional logo. Export in 16:9, 9:16, or 1:1.
+              Reuse JSON presets for fonts, colors, size, position, caption
+              motion, and an optional logo. Save a project look as a named preset
+              for future videos. Export in 16:9, 9:16, or 1:1.
             </p>
           </article>
           <article>
@@ -225,8 +239,9 @@
         </div>
         <p class="note">
           Scores guide editing decisions; they do not predict virality. Review
-          captions and clip boundaries. Split-screen uses fixed centers, not
-          speaker recognition.
+          captions and clip boundaries. Caption Studio's overlay approximates the
+          exported libass render. Split-screen uses fixed centers, not speaker
+          recognition.
         </p>
       </section>
       <section id="install" class="install">
@@ -263,6 +278,9 @@ python -m venv .venv
         <p>
           The CLI shares Studio's project runner. Prepare candidates, inspect
           the saved JSON, render a subset, resume a job, or process a batch.
+          Caption presets and controls have matching flags such as
+          <code>--style</code>, <code>--words-per-cue</code>, and
+          <code>--caption-json</code>.
           <a
             href="https://github.com/mehbul/chopify/blob/main/docs/AGENT-API.md"
             >Read the CLI and API reference ↗</a
@@ -299,11 +317,15 @@ python -m venv .venv
           </p>
         </details>
         <details>
-          <summary>Can I edit captions and download SRT subtitles?</summary>
+          <summary>Can I edit, style, and export captions?</summary>
           <p>
-            Yes. Edit words and their times in Studio's Transcript tab, save,
-            and export. Each draft and finished clip includes a separate SRT
-            file aligned to its own timeline.
+            Yes. Edit words and their times in Studio's Transcript tab. In the
+            Captions tab, choose one of 13 presets and tune font, size, colors,
+            outline, shadow, cue length, position, background, and word motion.
+            The overlay follows the source; 5-second previews show the look in
+            motion. Save a project style or a reusable named preset, then export.
+            Each draft and finished clip includes a separate SRT file aligned to
+            its own timeline.
           </p>
         </details>
         <details>
@@ -318,11 +340,12 @@ python -m venv .venv
         <details>
           <summary>What are the limitations?</summary>
           <p>
-            Speech recognition and caption timing need review. Heuristic cue
-            lists are English-oriented. GPU speech acceleration uses
-            NVIDIA/CUDA; CPU works without it. Split-screen uses fixed crop
-            centers. Translation, dubbing, scheduling, and social uploads are
-            not included.
+            Speech recognition and caption timing need review. Caption Studio's
+            overlay approximates the exported libass render, and emoji glyphs
+            need a system emoji font. Heuristic cue lists are English-oriented.
+            GPU speech acceleration uses NVIDIA/CUDA; CPU works without it.
+            Split-screen uses fixed crop centers. Translation, dubbing,
+            scheduling, and social uploads are not included.
           </p>
         </details>
       </section>
@@ -345,7 +368,7 @@ python -m venv .venv
         >CHOPIFY · MIT · By <a href="https://github.com/mehbul">mehbul</a></span
       ><span
         >Documentation updated
-        <time datetime="2026-10-23">October 23, 2026</time> ·
+        <time datetime="2026-10-31">October 31, 2026</time> ·
         <a href="https://github.com/mehbul/chopify/blob/main/CHANGELOG.md"
           >Changelog</a
         ></span

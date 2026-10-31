@@ -10,12 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Local browser dashboard with project review, progress, logs, previews, caption
   editing, candidate selection and downloadable exports.
+- Caption Studio with 13 presets, full typography/layout controls, word motion,
+  highlighting, boxed backgrounds, and a source-synced overlay with 5-second
+  preview.
+- Automatic per-cue emphasis for numbers, money, ALL-CAPS and power words, plus
+  optional deterministic emoji, capped at two emphasis words and one emoji per cue.
+- Reusable caption presets through brand JSON; project caption overrides persist
+  in `project.json` and layer over preset and brand values.
+- Shared caption CLI flags and `--caption-json` for `chopify.py` and
+  `render_clips.py`.
+- Optional `hidden` and `emphasis` flags on transcript words; both burnt captions
+  and SRT honor them.
 - Direct local video input (MP4, MOV, MKV, WebM, M4V, AVI).
 - Resumable projects with stage invalidation, per-clip checkpoints, and distinct
   output names for render variants; partial failures retain successful clips.
 - Serial batch queue with isolated folders and aggregate failure reporting.
 - Word/timestamp editing and clip-relative SRT, including retimed tightened cuts.
 - Validated reusable JSON brand presets for fonts, colors, size, margins and logo.
+  Brand files now accept every Caption Studio field.
 - Semantic clip search with optional local Ollama embeddings and document caching.
 - Vertical podcast split-screen with two adjustable fixed crop centers.
 - Workflow, troubleshooting, local API, and machine-readable product documentation.
@@ -33,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Matching successful stages resume by default; `--no-resume` forces processing.
+- Caption style resolution is named preset, then brand preset, then per-project
+  override; aspect defaults fill unset font size and margin.
+- SRT cue grouping follows the caption style's words-per-cue value on project
+  renders.
 - Docs clarify setup downloads, fixed framing, language limits and score meaning.
 
 ## [1.3.0] - 2026-09-06

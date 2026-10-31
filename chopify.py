@@ -22,6 +22,8 @@ import subprocess
 import json
 from pathlib import Path
 
+import render_clips
+
 # Python packages the pipeline needs, with a fix hint per missing module.
 IMPORT_HINTS = {
     "yt_dlp": "pip install -r requirements.txt",
@@ -89,7 +91,7 @@ def main():
     ap.add_argument("--out", default=None,
                     help="output directory (default ./clips, or $CHOPIFY_OUT)")
     ap.add_argument("--style", default="default",
-                    help="caption preset: default, hormozi, mrbeast, podcast")
+                    help="caption preset: " + ", ".join(render_clips.CAPTION_STYLES))
     ap.add_argument("--tighten", action="store_true",
                     help="remove filler words (um, uh...) and long silences")
     ap.add_argument("--loudnorm", action="store_true",
@@ -129,11 +131,16 @@ def main():
     ap.add_argument("--centers", type=float, nargs=2, default=[0.25, 0.75],
                     help="horizontal speaker centers from 0 to 1 for split-screen")
     ap.add_argument("--device", choices=["cpu", "cuda", "auto"], default="cpu")
+    render_clips.add_caption_arguments(ap)
     args = ap.parse_args()
     if not (args.url or args.batch or args.project):
         ap.error("provide a local video, URL, --batch file, or --project directory")
     if args.batch and (args.url or args.project):
         ap.error("--batch cannot be combined with a single source or --project")
+    try:
+        caption = render_clips.caption_from_args(args)
+    except ValueError as exc:
+        ap.exit(1, f"Caption: {exc}\n")
 
     if not args.no_preflight:
         problems = check_environment()
@@ -147,7 +154,8 @@ def main():
               "faster-whisper, opencv)", flush=True)
 
     import projects
-    options = {k: getattr(args, k) for k in projects.DEFAULT_OPTIONS}
+    options = {k: getattr(args, k) for k in projects.DEFAULT_OPTIONS if k != "caption"}
+    options["caption"] = caption
     if options["brand"]:
         options["brand"] = str(Path(options["brand"]).resolve())
     try:
@@ -166,9 +174,13 @@ def main():
                 state["source"] = str(Path(args.url).resolve()) if Path(args.url).is_file() else args.url
             # Existing projects keep their settings unless a flag explicitly changes one.
             for key in options:
+                if key == "caption":
+                    continue
                 flag = "--" + key.replace("_", "-")
                 if any(token == flag or token.startswith(flag + "=") for token in sys.argv[1:]):
                     state["options"][key] = options[key]
+            if caption is not None:
+                state["options"]["caption"] = caption
             projects.save_project(path, state)
         else:
             if not args.url:

@@ -1,6 +1,6 @@
 {
   "name": "Chopify",
-  "description": "Free local video clipper with a browser dashboard, resumable batch projects, editable captions, SRT, branding, semantic search, and podcast split-screen.",
+  "description": "Free local video clipper with a browser dashboard, resumable batch projects, editable and styled captions, SRT, branding, semantic search, and podcast split-screen.",
   "repository": "https://github.com/mehbul/chopify",
   "website": "https://mehbul.github.io/chopify/",
   "license": "MIT",
@@ -11,9 +11,20 @@
   "inputs": ["local MP4", "MOV", "MKV", "WebM", "M4V", "AVI", "yt-dlp-supported HTTP(S) URL"],
   "outputs": ["H.264 MP4", "AAC if source audio exists", "clip-relative SRT", "PNG poster", "metadata JSON"],
   "aspects": ["16:9", "9:16", "1:1"],
-  "capabilities": ["serial batch queue", "resumable projects", "candidate review", "caption editing", "brand presets and logo", "keyword search", "optional local semantic search", "fixed two-panel podcast framing", "single-frame face tracking", "filler and silence removal"],
+  "caption_presets": ["default", "clean", "minimal", "bold", "boxed", "karaoke", "pop", "neon", "typewriter", "retro", "hormozi", "mrbeast", "podcast"],
+  "caption_controls": {
+    "words_per_cue": [1, 8],
+    "position": ["bottom", "center", "top"],
+    "animation": ["none", "pop", "bounce", "fade", "typewriter"],
+    "highlight_mode": ["word", "karaoke", "none"],
+    "background": ["none", "box"],
+    "emoji": true,
+    "auto_emphasis": true,
+    "precedence": ["named preset", "brand preset", "project override"]
+  },
+  "capabilities": ["serial batch queue", "resumable projects", "candidate review", "caption editing", "caption studio presets and word motion", "live caption preview", "automatic emphasis and emoji", "brand presets and logo", "keyword search", "optional local semantic search", "fixed two-panel podcast framing", "single-frame face tracking", "filler and silence removal"],
   "optional_models": {"semantic_search": {"provider": "local Ollama", "default_model": "nomic-embed-text", "endpoint": "http://127.0.0.1:11434/api/embed"}, "clip_selection": "local Ollama chat model"},
   "privacy": {"hosted_processing": false, "initial_model_downloads": true, "url_inputs_need_internet": true, "dashboard_binding": "127.0.0.1"},
-  "not_included": ["social publishing", "scheduling", "cloud collaboration", "hosted processing", "translation", "dubbing", "speaker diarization", "guaranteed virality"],
-  "documentation_updated": "2026-10-23"
+  "not_included": ["social publishing", "scheduling", "cloud collaboration", "hosted processing", "translation", "bilingual captions", "dubbing", "speaker diarization", "guaranteed virality"],
+  "documentation_updated": "2026-10-31"
 }

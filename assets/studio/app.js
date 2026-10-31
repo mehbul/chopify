@@ -11,6 +11,10 @@ const state = {
   tab: "clips",
   selected: new Set(),
   noticeTimer: null,
+  captionDraft: null,
+  captionKey: "",
+  captionSerial: 0,
+  captionPreset: "default",
 };
 const escapeHTML = (value) =>
   String(value ?? "").replace(
@@ -70,7 +74,273 @@ function safe(handler) {
 async function config() {
   state.config = await api("/api/config");
   state.token = state.config.token;
+  updatePresets();
   updateBrands();
+  renderCaptionGallery();
+}
+function presetNames() {
+  return Object.keys(state.config.caption_presets || {});
+}
+function updatePresets() {
+  const markup = presetNames()
+    .map((name) => `<option>${escapeHTML(name)}</option>`)
+    .join("");
+  for (const select of [
+    $("#new-style"),
+    $("#caption-preset"),
+    $("#settings-form").elements.style,
+  ]) {
+    if (!select) continue;
+    const current = select.value;
+    select.innerHTML = markup;
+    if (presetNames().includes(current)) select.value = current;
+  }
+}
+function aspectCaptionBase(aspect) {
+  return (
+    state.config.caption_aspects[aspect] ||
+    state.config.caption_aspects["16:9"] || { font_size: 72, margin: 95 }
+  );
+}
+function brandCaption(name) {
+  return (state.config.caption_brands || {})[name] || {};
+}
+function savedCaptionStyle() {
+  const options = state.detail.project.options;
+  const brand = options.brand
+    ? basename(options.brand).replace(/\.json$/, "")
+    : "";
+  const base = aspectCaptionBase(options.aspect);
+  const merged = {
+    ...state.config.caption_defaults,
+    ...(state.config.caption_presets[options.style] || {}),
+    ...brandCaption(brand),
+    ...(options.caption || {}),
+  };
+  if (merged.font_size == null) merged.font_size = base.font_size;
+  if (merged.margin == null) merged.margin = base.margin;
+  return merged;
+}
+function captionFromForm() {
+  const form = $("#caption-form");
+  const value = (name) => form.elements[name].value;
+  return {
+    font: value("font").trim() || "Arial Black",
+    font_size: Number(value("font_size")),
+    color: value("color"),
+    highlight: value("highlight"),
+    emphasis_color: value("emphasis_color"),
+    outline_color: value("outline_color"),
+    uppercase: form.elements.uppercase.checked,
+    words_per_cue: Number(value("words_per_cue")),
+    position: value("position"),
+    margin: Number(value("margin")),
+    outline: Number(value("outline")),
+    shadow: Number(value("shadow")),
+    background: value("background"),
+    background_color: value("background_color"),
+    background_opacity: Number(value("background_opacity")),
+    animation: value("animation"),
+    highlight_mode: value("highlight_mode"),
+    emoji: form.elements.emoji.checked,
+    emphasis: form.elements.emphasis.checked,
+  };
+}
+function fillCaptionForm(style, preset) {
+  const form = $("#caption-form");
+  for (const [key, value] of Object.entries(style)) {
+    const input = form.elements.namedItem(key);
+    if (!input) continue;
+    if (input.type === "checkbox") input.checked = !!value;
+    else input.value = value ?? "";
+  }
+  $("#caption-preset").value = preset;
+  state.captionDraft = captionFromForm();
+  state.captionSerial++;
+  state.captionKey = "";
+  updateCaptionSummary();
+  updateCaptionOverlay();
+}
+function syncCaption() {
+  if (!state.detail) return;
+  state.captionDraft = captionFromForm();
+  state.captionSerial++;
+  state.captionKey = "";
+  updateCaptionSummary();
+  updateCaptionOverlay();
+}
+function updateCaptionSummary() {
+  const style = state.captionDraft;
+  if (!style) return;
+  $("#caption-summary").textContent =
+    `${style.words_per_cue} words · ${style.position} · ` +
+    `${style.animation === "none" ? "no motion" : style.animation}`;
+}
+function renderCaptionGallery() {
+  const wrap = $("#caption-presets");
+  if (!wrap) return;
+  wrap.innerHTML = presetNames()
+    .map(
+      (name) =>
+        `<button type="button" class="caption-preset" data-caption-preset="${escapeHTML(name)}" aria-pressed="false">${escapeHTML(name)}</button>`,
+    )
+    .join("");
+  for (const button of wrap.querySelectorAll("[data-caption-preset]")) {
+    const preset = state.config.caption_presets[button.dataset.captionPreset];
+    button.style.setProperty("--preset-font", preset.font);
+    button.style.setProperty("--preset-color", preset.color);
+    button.style.setProperty("--preset-highlight", preset.highlight);
+  }
+  markCaptionPreset(state.captionPreset);
+}
+function markCaptionPreset(name) {
+  state.captionPreset = name;
+  for (const button of document.querySelectorAll("[data-caption-preset]"))
+    button.setAttribute(
+      "aria-pressed",
+      String(button.dataset.captionPreset === name),
+    );
+}
+function applyCaptionPreset(name) {
+  if (!state.detail || !state.config.caption_presets[name]) return;
+  const base = aspectCaptionBase(state.detail.project.options.aspect);
+  const style = { ...state.config.caption_defaults, ...state.config.caption_presets[name] };
+  if (style.font_size == null) style.font_size = base.font_size;
+  if (style.margin == null) style.margin = base.margin;
+  fillCaptionForm(style, name);
+  $("#settings-form").elements.style.value = name;
+  markCaptionPreset(name);
+}
+function hexToRgba(hex, opacity) {
+  const match = /^#([0-9a-f]{6})$/i.exec(String(hex));
+  if (!match) return "rgba(0, 0, 0, 0.7)";
+  const value = parseInt(match[1], 16);
+  const alpha = Math.max(0, Math.min(100, Number(opacity) || 0)) / 100;
+  return `rgba(${(value >> 16) & 255}, ${(value >> 8) & 255}, ${value & 255}, ${alpha})`;
+}
+function isEmphasizedWord(text) {
+  const plain = String(text)
+    .trim()
+    .replace(/^[^\w$€£¥]+|[^\w%$€£¥]+$/g, "");
+  if (!plain) return false;
+  if (/[\d$€£¥]/.test(plain)) return true;
+  if (plain.length > 2 && plain === plain.toUpperCase() && /[A-Z]/.test(plain))
+    return true;
+  return state.config.caption_power_words.includes(
+    plain.toLowerCase().replace(/[.,!?;:'"]+$/, ""),
+  );
+}
+function emojiForWord(text) {
+  const token = String(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9']/g, "");
+  if (!token) return "";
+  for (const rule of state.config.caption_emoji_rules || [])
+    if (rule.words.some((stem) => token.startsWith(stem))) return rule.emoji;
+  return "";
+}
+function updateCaptionOverlay(force = false) {
+  const overlay = $("#caption-overlay"),
+    player = $("#source-player"),
+    style = state.captionDraft;
+  if (
+    !state.detail ||
+    !state.detail.transcript ||
+    state.tab !== "captions" ||
+    !style
+  ) {
+    overlay.hidden = true;
+    return;
+  }
+  const words = state.words.filter((item) => !item.hidden);
+  const per = Math.max(1, Math.min(8, Number(style.words_per_cue) || 3));
+  const current = player.currentTime || 0;
+  let cue = null,
+    cueIndex = -1;
+  for (let i = 0; i < words.length; i += per) {
+    const group = words.slice(i, i + per);
+    if (
+      group.length &&
+      current >= group[0].start &&
+      current <= group[group.length - 1].end
+    ) {
+      cue = group;
+      cueIndex = i;
+      break;
+    }
+  }
+  if (!cue) {
+    overlay.hidden = true;
+    return;
+  }
+  let active = 0;
+  for (let i = 0; i < cue.length; i++) if (current >= cue[i].start) active = i;
+  const marked = [];
+  for (let i = 0; i < cue.length; i++)
+    if (cue[i].emphasis === true) marked.push(i);
+  if (style.emphasis)
+    for (let i = 0; i < cue.length; i++)
+      if (!marked.includes(i) && isEmphasizedWord(cue[i].word)) marked.push(i);
+  const emphasised = new Set(marked.slice(0, 2));
+  let emojiIndex = -1,
+    emoji = "";
+  if (style.emoji) {
+    for (let i = 0; i < cue.length; i++) {
+      emoji = emojiForWord(cue[i].word);
+      if (emoji) {
+        emojiIndex = i;
+        break;
+      }
+    }
+  }
+  const key = `${cueIndex}:${active}:${state.captionSerial}`;
+  if (state.captionKey !== key || force) {
+    const parts = [];
+    cue.forEach((item, i) => {
+      if (style.animation === "typewriter" && i > active) return;
+      let token = escapeHTML(
+        style.uppercase ? item.word.toUpperCase() : item.word,
+      );
+      if (i === emojiIndex) token += ` <span class="caption-emoji">${emoji}</span>`;
+      let className = "caption-word";
+      if (style.highlight_mode !== "none" && i === active)
+        className += " is-active";
+      else if (style.highlight_mode === "karaoke" && i < active)
+        className += " is-karaoke";
+      else if (style.highlight_mode !== "none" && emphasised.has(i))
+        className += " is-emphasis";
+      if (
+        i === active &&
+        style.animation !== "none" &&
+        style.animation !== "typewriter"
+      )
+        className += ` is-${style.animation}`;
+      parts.push(`<span class="${className}">${token}</span>`);
+    });
+    $("#caption-cue").innerHTML = parts.join(" ");
+    state.captionKey = key;
+  }
+  const wrap = $(".player-wrap");
+  const scale = Math.max(0.04, (wrap.clientHeight || 1) / 1080);
+  const set = (name, value) => overlay.style.setProperty(name, value);
+  overlay.className =
+    `caption-overlay caption-${style.position}` +
+    (style.background === "box" ? " caption-boxed" : "");
+  set("--caption-font", `${style.font}, "Segoe UI Emoji", sans-serif`);
+  set("--caption-font-size", `${Math.max(8, style.font_size * scale)}px`);
+  set("--caption-margin", `${Math.max(0, style.margin * scale)}px`);
+  set("--caption-outline", `${Math.max(0, style.outline * scale)}px`);
+  set("--caption-shadow", `${Math.max(0, style.shadow * scale)}px`);
+  set("--caption-color", style.color);
+  set("--caption-highlight", style.highlight);
+  set("--caption-emphasis", style.emphasis_color);
+  set("--caption-outline-color", style.outline_color);
+  set(
+    "--caption-box-bg",
+    hexToRgba(style.background_color, style.background_opacity),
+  );
+  set("--caption-box-pad", `${Math.max(2, style.outline * scale + 2)}px`);
+  overlay.hidden = false;
 }
 function updateBrands(selected = "") {
   $("#brand-select").innerHTML =
@@ -104,6 +374,8 @@ async function selectProject(id) {
   state.id = id;
   state.page = 0;
   state.tab = "clips";
+  state.captionDraft = null;
+  state.captionKey = "";
   $("#new-view").hidden = true;
   $("#project-view").hidden = false;
   const detail = await api(`/api/projects/${id}`);
@@ -127,11 +399,14 @@ function updateStatus(detail) {
     "#render",
     "#save-candidates",
     "#save-transcript",
-    "#settings-form button",
   ])
     $(selector).disabled = detail.busy;
   for (const el of document.querySelectorAll(
-    "#settings-form input, #settings-form select, #candidates input, #transcript-words input",
+    "#settings-form button, #caption-form button, #caption-preview",
+  ))
+    el.disabled = detail.busy;
+  for (const el of document.querySelectorAll(
+    "#settings-form input, #settings-form select, #candidates input, #transcript-words input, #caption-form input, #caption-form select, #caption-presets button",
   ))
     el.disabled = detail.busy;
 }
@@ -168,6 +443,8 @@ function renderDetail() {
       ? "search"
       : "auto";
   $("#query").value = options.semantic || options.search || "";
+  fillCaptionForm(savedCaptionStyle(), options.style);
+  markCaptionPreset(options.style);
   $("#candidate-count").textContent = detail.candidates.length;
   $("#candidates").innerHTML = detail.candidates.length
     ? detail.candidates
@@ -187,11 +464,18 @@ function setTab(tab) {
   state.tab = tab;
   $("#clip-panel").hidden = tab !== "clips";
   $("#transcript-panel").hidden = tab !== "transcript";
+  $("#caption-panel").hidden = tab !== "captions";
   $("#show-clips").setAttribute("aria-pressed", String(tab === "clips"));
   $("#show-transcript").setAttribute(
     "aria-pressed",
     String(tab === "transcript"),
   );
+  $("#show-captions").setAttribute(
+    "aria-pressed",
+    String(tab === "captions"),
+  );
+  state.captionKey = "";
+  updateCaptionOverlay(true);
 }
 function updateSelection() {
   $("#selection-count").textContent = `${state.selected.size} selected`;
@@ -382,6 +666,17 @@ $("#source-player").addEventListener("timeupdate", () => {
     $("#source-player").pause();
     stopAt = null;
   }
+  updateCaptionOverlay();
+});
+$("#source-player").addEventListener("seeked", () =>
+  updateCaptionOverlay(true),
+);
+$("#source-player").addEventListener("loadedmetadata", () =>
+  updateCaptionOverlay(true),
+);
+window.addEventListener("resize", () => {
+  state.captionKey = "";
+  updateCaptionOverlay(true);
 });
 $("#candidates").addEventListener(
   "click",
@@ -418,6 +713,55 @@ $("#words-next").addEventListener("click", () => {
 });
 $("#show-clips").addEventListener("click", () => setTab("clips"));
 $("#show-transcript").addEventListener("click", () => setTab("transcript"));
+$("#show-captions").addEventListener("click", () => setTab("captions"));
+$("#caption-form").addEventListener("input", () => syncCaption());
+$("#caption-preset").addEventListener("change", (event) =>
+  applyCaptionPreset(event.target.value),
+);
+$("#caption-presets").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-caption-preset]");
+  if (button) applyCaptionPreset(button.dataset.captionPreset);
+});
+$("#caption-form").addEventListener(
+  "submit",
+  safe(async (event) => {
+    event.preventDefault();
+    const caption = captionFromForm();
+    const style = $("#caption-preset").value;
+    await api(`/api/projects/${state.id}/settings`, { caption, style });
+    state.detail.project.options.caption = caption;
+    state.detail.project.options.style = style;
+    state.captionDraft = caption;
+    markCaptionPreset(style);
+    notice("Caption style saved for this project.");
+  }),
+);
+$("#save-caption-preset").addEventListener(
+  "click",
+  safe(async () => {
+    if (!state.detail) throw new Error("Select a project first.");
+    const name = $("#caption-preset-name").value.trim();
+    if (!name) throw new Error("Name the preset first.");
+    await api("/api/brands", { name, preset: captionFromForm() });
+    await config();
+    $("#brand-select").value = name;
+    notice(
+      "Caption preset saved. Choose it under Brand preset, then Save settings.",
+    );
+  }),
+);
+$("#caption-preview").addEventListener(
+  "click",
+  safe(async () => {
+    if (!state.detail?.transcript) throw new Error("Prepare the project first.");
+    const candidates = state.detail.candidates;
+    const selected = [...state.selected].sort((a, b) => a - b);
+    const clip = candidates[(selected[0] || 1) - 1] || candidates[0];
+    setTab("captions");
+    const start = clip ? Number(clip.start) : state.words[0]?.start || 0;
+    await play(start, start + 5);
+  }),
+);
 $("#prepare").addEventListener(
   "click",
   safe(() => run("prepare")),
