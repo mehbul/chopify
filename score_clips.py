@@ -22,12 +22,71 @@ No paid APIs, no API keys. Usage:
     python score_clips.py work --min-score 6.0 --max-clips 12
 """
 import re
+import math
 import json
 import argparse
 import urllib.request
 from pathlib import Path
 
 OLLAMA_HOST = "http://localhost:11434"
+
+BASE_LADDER = (15, 30, 45, 60, 90, 120, 180, 300)
+DURATION_HELP = "Use seconds or a duration like 45s, 2m, or 1m30s (5s to 1h)."
+
+
+def parse_duration(value):
+    """Parse seconds or a duration string into a float clamped to 5..3600."""
+    if isinstance(value, bool) or value is None:
+        raise ValueError(DURATION_HELP)
+    if isinstance(value, (int, float)):
+        seconds = float(value)
+    elif isinstance(value, str):
+        text = value.strip().lower().replace(" ", "")
+        if not text:
+            raise ValueError(DURATION_HELP)
+        if re.fullmatch(r"\d+(?:\.\d+)?", text):
+            seconds = float(text)
+        else:
+            match = re.fullmatch(
+                r"(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m)?(?:(\d+(?:\.\d+)?)s)?",
+                text)
+            if not match or not any(match.groups()):
+                raise ValueError(DURATION_HELP)
+            hours, minutes, secs = (float(x or 0) for x in match.groups())
+            seconds = hours * 3600 + minutes * 60 + secs
+    else:
+        raise ValueError(DURATION_HELP)
+    if not math.isfinite(seconds) or not 5 <= seconds <= 3600:
+        raise ValueError(DURATION_HELP)
+    return round(seconds, 3)
+
+
+def duration_ladder(min_len, max_len, preferred_len=None):
+    """Sorted duration targets: base ladder, range endpoints, preferred value."""
+    if min_len > max_len:
+        raise ValueError("Minimum clip length cannot exceed maximum clip length.")
+    values = {x for x in BASE_LADDER if min_len <= x <= max_len}
+    values.update((min_len, max_len))
+    if preferred_len is not None:
+        values.add(int(min(max(preferred_len, min_len), max_len)))
+    return sorted(values)
+
+
+def normalize_seed_indices(sentences, seed_indices=None):
+    """Validated, de-duplicated, sorted seed indices for discovery."""
+    if seed_indices is None:
+        return list(range(len(sentences)))
+    seen, result = set(), []
+    for index in seed_indices:
+        if isinstance(index, bool) or not isinstance(index, int):
+            raise ValueError("Seed indices must be integers.")
+        if not 0 <= index < len(sentences):
+            raise ValueError("Seed index is outside the transcript.")
+        if index not in seen:
+            seen.add(index)
+            result.append(index)
+    return sorted(result)
+
 
 FILLER_TOKENS = {"um", "uh", "uhh", "umm", "erm", "er", "hmm", "mmm", "mm", "ah", "eh"}
 FILLER_SEQS = {("you", "know"), ("i", "mean"), ("kind", "of"), ("sort", "of")}

@@ -114,6 +114,39 @@ class TestCalibration:
             assert 0.0 <= overall <= 10.0
 
 
+class TestDurationParser:
+    @pytest.mark.parametrize("value,expected", [
+        (45, 45.0), ("45", 45.0), ("45s", 45.0), ("2m", 120.0),
+        ("1.5m", 90.0), ("1m30s", 90.0), ("1h", 3600.0),
+    ])
+    def test_accepts_supported_formats(self, value, expected):
+        assert score_clips.parse_duration(value) == pytest.approx(expected)
+
+    @pytest.mark.parametrize("value", [True, False, 0, -5, "0", "-2s", "",
+                                        "abc", "1x", "4000s", None])
+    def test_rejects_invalid_formats(self, value):
+        with pytest.raises(ValueError):
+            score_clips.parse_duration(value)
+
+    def test_error_mentions_an_example(self):
+        with pytest.raises(ValueError, match="45s"):
+            score_clips.parse_duration("nope")
+
+
+class TestDurationLadder:
+    def test_default_ladder(self):
+        assert score_clips.duration_ladder(15, 300) == [
+            15, 30, 45, 60, 90, 120, 180, 300]
+
+    def test_preferred_value_is_inserted_and_clipped(self):
+        assert 52 in score_clips.duration_ladder(15, 300, 52)
+        assert max(score_clips.duration_ladder(15, 300, 900)) == 300
+        assert min(score_clips.duration_ladder(15, 300, 1)) == 15
+
+    def test_narrow_range_still_has_endpoints(self):
+        assert score_clips.duration_ladder(40, 100) == [40, 45, 60, 90, 100]
+
+
 class TestScoring:
     def test_hook_sentence_scores_higher(self, sample_words):
         sents = score_clips.sentenceize(sample_words)
