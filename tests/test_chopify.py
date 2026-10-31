@@ -66,6 +66,54 @@ class TestSentenceize:
         assert total == len(sample_words)
 
 
+class TestCalibration:
+    def test_calibration_anchors(self):
+        anchors = {0.30: 3.3, 0.40: 4.6, 0.50: 6.0, 0.58: 7.0,
+                   0.65: 8.0, 0.70: 8.7, 0.75: 9.3, 0.80: 10.0}
+        for raw, expected in anchors.items():
+            assert score_clips.calibrate_text(raw) == pytest.approx(expected, abs=0.06)
+
+    def test_calibration_clamps(self):
+        assert score_clips.calibrate_text(-1) == 0.0
+        assert score_clips.calibrate_text(2) == 10.0
+
+    def test_strong_window_reaches_eight(self):
+        words = (sentence("Here is the thing nobody tells you about losing everything.", 0.0)
+                 + sentence("I was broke and terrified, then I found one insane secret.", 8.0)
+                 + sentence("It changed my life forever, and it will change yours.", 16.0))
+        sents = score_clips.sentenceize(words)
+        parts, text_score, raw_score = score_clips.score_window(sents, 0, len(sents) - 1)
+        assert text_score >= 8.0
+        assert raw_score >= 0.64
+        assert set(score_clips.TEXT_WEIGHTS) <= set(parts)
+
+    def test_flat_narration_stays_below_six(self):
+        words = (sentence("Today we are going to talk about the general topic.", 0.0)
+                 + sentence("There are many things that people consider in this area.", 8.0)
+                 + sentence("That is all for this section of the discussion.", 16.0))
+        sents = score_clips.sentenceize(words)
+        _, text_score, _ = score_clips.score_window(sents, 0, len(sents) - 1)
+        assert text_score < 6.0
+
+    def test_meta_outro_and_filler_lower_the_score(self):
+        words = (sentence("The biggest mistake is waiting until you feel ready.", 0.0)
+                 + sentence("You have to start scared and learn from the wreckage.", 8.0))
+        sents = score_clips.sentenceize(words)
+        _, clean, _ = score_clips.score_window(sents, 0, len(sents) - 1)
+        polluted_words = sents[0]["words"] + sents[1]["words"] + sentence(
+            "Um, thanks for watching and subscribe to the channel.", 16.0)
+        polluted = score_clips.sentenceize(polluted_words)
+        _, noisy, _ = score_clips.score_window(polluted, 0, len(polluted) - 1)
+        assert clean - noisy >= 0.5
+
+    def test_score_sentence_keeps_old_contract(self, sample_words):
+        sents = score_clips.sentenceize(sample_words)
+        for s in sents:
+            scores, overall = score_clips.score_sentence(s)
+            assert set(scores) == set(score_clips.TEXT_WEIGHTS)
+            assert 0.0 <= overall <= 10.0
+
+
 class TestScoring:
     def test_hook_sentence_scores_higher(self, sample_words):
         sents = score_clips.sentenceize(sample_words)

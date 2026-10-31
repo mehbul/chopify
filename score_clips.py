@@ -101,36 +101,301 @@ def sentenceize(words, gap=1.2):
 
 # ------------------------------------------------------------- heuristic core
 
-# criterion -> weight (hook/energy/arc dominate; matches the README's 8 criteria)
-WEIGHTS = {"hook": 0.20, "shock": 0.10, "humour": 0.05, "controversy": 0.10,
-           "insight": 0.15, "emotion": 0.10, "energy": 0.15, "arc": 0.15}
+META_OPENERS = ("welcome back", "welcome to", "in this video", "today we",
+                "before we start", "quick intro")
+META_OUTROS = ("thanks for watching", "subscribe", "like and comment",
+               "hit the bell", "see you next time", "sponsor")
+ANAPHORIC_OPENERS = ("this", "that", "it", "he", "she", "they", "those", "these")
+EARLIER_REFERENCES = ("as i said", "like i mentioned", "earlier", "last time",
+                      "previous video", "as you know")
+INTENSITY_WORDS = ("insane", "crazy", "unbelievable", "massive", "huge",
+                   "terrified", "furious", "incredible", "disgusting", "wild",
+                   "forever", "broke", "destroyed", "brutal")
+REACTION_PHRASES = ("no way", "let's go", "what the", "oh my god", "are you kidding")
+PAYOFF_WORDS = ("so", "therefore", "that is why", "the result", "it turned out",
+                "in the end", "changed", "finally", "which means", "the lesson",
+                "turned out", "which is why")
+CURIOSITY_CUES = ("secret", "nobody tells", "truth", "reason", "mistake",
+                  "hidden", "discovery", "nobody knows", "what happened")
+STAKES_WORDS = ("lose", "losing", "lost", "risk", "money", "business", "life",
+                "death", "everything", "nothing", "fail", "failure", "broke",
+                "fired", "quit", "divorce", "war", "fight", "survive", "broke")
+SUPERLATIVE_WORDS = ("best", "worst", "biggest", "most", "least", "never",
+                     "always", "everyone", "nobody", "ever")
+NEGATION_WORDS = ("not", "don't", "dont", "never", "no", "nothing", "can't",
+                  "cant", "won't", "wont", "isn't", "isnt", "wasn't", "wasnt")
+GAMEPLAY_CUES = ("clutch", "ace", "kill", "win", "gg", "no way", "let's go",
+                 "boss", "speedrun", "world record", "one shot", "comeback",
+                 "pentakill", "headshot", "round")
+STOPWORDS = {"the", "a", "an", "and", "or", "but", "to", "of", "in", "on",
+             "for", "with", "is", "are", "was", "were", "be", "been", "it",
+             "this", "that", "you", "your", "i", "my", "we", "our", "me",
+             "at", "as", "so", "if", "then", "than", "have", "has", "had",
+             "do", "does", "did", "will", "would", "can", "could", "just"}
 
-def _cues(low, group):
-    return min(1.0, sum(c in low for c in group) / 2.0)
+TEXT_WEIGHTS = {
+    "hook": 0.18, "payoff": 0.16, "self_containment": 0.12, "arc": 0.12,
+    "energy": 0.11, "quotability": 0.10, "emotion": 0.08,
+    "controversy": 0.07, "humour": 0.06,
+}
+WEIGHTS = TEXT_WEIGHTS  # backward-compatible alias for third-party imports
 
 
-def score_sentence(sent):
-    text = sent["text"]
+def clamp01(value):
+    return max(0.0, min(1.0, float(value)))
+
+
+def calibrate_text(raw):
+    """Map a 0-1 rubric value onto the absolute 0-10 score scale."""
+    return round(10.0 * clamp01(1.35 * clamp01(raw) - 0.08), 2)
+
+
+def _cue_hits(low, group):
+    return sum(1 for cue in group if cue in low)
+
+
+def _tokens(text):
+    return [token for token in (_norm_token(word) for word in (text or "").split())
+            if token]
+
+
+def _max_word_gap(words):
+    gap = 0.0
+    for first, second in zip(words, words[1:]):
+        gap = max(gap, float(second.get("start", 0.0)) - float(first.get("end", 0.0)))
+    return gap
+
+
+def _has_repeated_bigram(tokens):
+    bigrams = list(zip(tokens, tokens[1:]))
+    return len(bigrams) != len(set(bigrams))
+
+
+def _has_false_start(tokens):
+    return any(first == second for first, second in zip(tokens, tokens[1:]))
+
+
+def _has_filler_sequence(tokens):
+    return any((first, second) in FILLER_SEQS
+               for first, second in zip(tokens, tokens[1:]))
+
+
+def _quotability(tokens, low, text):
+    score = 0.0
+    if 2 <= len(tokens) <= 12:
+        score += 0.35
+    if any(cue in low for cue in (" but ", " not ", " instead ", " however ",
+                                  " yet ", " without ")):
+        score += 0.20
+    if text.count(",") >= 2 or low.count(" and ") >= 2:
+        score += 0.20
+    if any(ch.isdigit() for ch in text) and any(
+            word in low for word in (" is ", " was ", " will ", " can ")):
+        score += 0.20
+    if any(word in low for word in (" forever ", " everything ", " nothing ",
+                                    " truth ", " life ", " never ")):
+        score += 0.25
+    return clamp01(score)
+
+
+def sentence_features(sent):
+    """Cheap per-sentence features shared by every window score."""
+    text = sent.get("text", "")
     low = " " + text.lower() + " "
-    dur = max(0.1, sent["end"] - sent["start"])
-    wps = len(sent["words"]) / dur
-    arc = 1.0 if is_arc_complete(text) else 0.55
-    scores = {
-        "hook": _cues(low, HOOK_CUES),
-        "shock": _cues(low, SHOCK_CUES),
-        "humour": _cues(low, HUMOUR_CUES),
-        "controversy": _cues(low, CONTROVERSY_CUES),
-        "insight": _sm_cues(low),
-        "emotion": _cues(low, EMOTION_CUES),
-        "energy": min(1.0, wps / 3.0),
-        "arc": arc,
+    tokens = _tokens(text)
+    words = sent.get("words") or []
+    duration = max(0.1, float(sent["end"]) - float(sent["start"]))
+    filler_count = sum(token in FILLER_TOKENS for token in tokens)
+    if _has_filler_sequence(tokens):
+        filler_count += 1
+    return {
+        "start": float(sent["start"]), "end": float(sent["end"]),
+        "duration": duration, "words": len(tokens), "text": text,
+        "tokens": tokens, "clean_words": max(1, len(tokens) - filler_count),
+        "wps": len(tokens) / duration,
+        "terminal": is_arc_complete(text),
+        "filler_count": filler_count,
+        "filler_ratio": filler_count / max(1, len(tokens)),
+        "meta_open": any(phrase in low for phrase in META_OPENERS),
+        "meta_outro": any(phrase in low for phrase in META_OUTROS),
+        "anaphoric": bool(tokens) and tokens[0] in ANAPHORIC_OPENERS,
+        "earlier_ref": any(phrase in low for phrase in EARLIER_REFERENCES),
+        "question": text.strip().endswith("?") or " what if " in low,
+        "number": bool(re.search(
+            r"\b\d[\d,.]*\b|\b(one|two|three|ten|hundred|thousand|million|billion)\b",
+            low)),
+        "second_person": any(token in tokens for token in
+                             ("you", "your", "yours", "yourself")),
+        "first_person": any(token in tokens for token in
+                            ("i", "me", "my", "mine", "we", "our", "us")),
+        "hook": _cue_hits(low, HOOK_CUES),
+        "payoff_cue": _cue_hits(low, PAYOFF_WORDS),
+        "curiosity": _cue_hits(low, CURIOSITY_CUES),
+        "stakes": _cue_hits(low, STAKES_WORDS),
+        "superlative": _cue_hits(low, SUPERLATIVE_WORDS),
+        "negation": _cue_hits(low, NEGATION_WORDS),
+        "emotion": _cue_hits(low, EMOTION_CUES),
+        "controversy": _cue_hits(low, CONTROVERSY_CUES),
+        "humour": _cue_hits(low, HUMOUR_CUES),
+        "insight": _cue_hits(low, INSIGHT_CUES),
+        "game_cue": _cue_hits(low, GAMEPLAY_CUES),
+        "intensity": _cue_hits(low, INTENSITY_WORDS),
+        "laughter": _cue_hits(low, HUMOUR_CUES),
+        "reaction": _cue_hits(low, REACTION_PHRASES),
+        "exclamation": text.count("!"),
+        "caps": sum(1 for word in text.split()
+                    if len(word) >= 3 and word.isupper()),
+        "repeated": bool(re.search(r"(.)\1{2,}", text.lower())),
+        "quotability": _quotability(tokens, low, text),
+        "repeated_bigram": _has_repeated_bigram(tokens),
+        "false_start": _has_false_start(tokens),
+        "max_gap": _max_word_gap(words),
     }
-    overall = sum(WEIGHTS[k] * v for k, v in scores.items()) * 10.0
-    return scores, round(overall, 2)
 
 
-def _sm_cues(low):
-    return _cues(low, INSIGHT_CUES)
+class WindowIndex:
+    """Per-sentence features plus fast window scoring."""
+
+    def __init__(self, sentences, source_wps=None):
+        self.sentences = sentences
+        self.features = [sentence_features(sent) for sent in sentences]
+        rates = sorted(f["wps"] for f in self.features if f["words"])
+        if source_wps is not None:
+            self.source_wps = max(0.5, float(source_wps))
+        elif rates:
+            middle = len(rates) // 2
+            self.source_wps = max(0.5, (rates[middle] if len(rates) % 2
+                                         else (rates[middle - 1] + rates[middle]) / 2))
+        else:
+            self.source_wps = 2.5
+
+    def score(self, a, b):
+        return _score_indexed(self, a, b)
+
+
+def _score_indexed(index, a, b):
+    features = index.features[a:b + 1]
+    if not features:
+        return ({key: 0.0 for key in TEXT_WEIGHTS} |
+                {"penalties": 0.2, "text_score": 0.0}), 0.0, 0.0
+    first, last = features[0], features[-1]
+    first_two, last_two = features[:2], features[-2:]
+    duration = max(0.1, last["end"] - first["start"])
+    total_words = sum(feature["words"] for feature in features)
+    wps = total_words / duration
+
+    hook_cues = (sum(feature["hook"] for feature in first_two)
+                 + first["curiosity"] + first["stakes"]
+                 + first["superlative"] + first["negation"])
+    hook = (0.45 * min(1.0, hook_cues / 4.0)
+            + 0.15 * first["question"] + 0.10 * first["number"]
+            + 0.10 * first["second_person"]
+            + 0.10 * min(1.0, first["curiosity"] / 2.0)
+            + 0.10 * min(1.0, first["stakes"] / 2.0))
+    if first["meta_open"]:
+        hook -= 0.25
+    hook = clamp01(hook)
+
+    first_tokens = set(first["tokens"]) - STOPWORDS
+    last_tokens = set(last["tokens"]) - STOPWORDS
+    overlap = 1.0 if first_tokens & last_tokens else 0.0
+    payoff_cues = sum(feature["payoff_cue"] for feature in last_two)
+    payoff = (0.35 * last["terminal"]
+              + 0.25 * min(1.0, payoff_cues / 2.0)
+              + 0.20 * overlap
+              + 0.20 * (1.0 - min(1.0, last["filler_ratio"] * 3.0)))
+    payoff = clamp01(payoff)
+
+    start_clean = not first["anaphoric"] and not first["meta_open"]
+    no_earlier = not any(feature["earlier_ref"] for feature in features)
+    self_containment = (0.35 * start_clean + 0.25 * no_earlier
+                        + 0.20 * last["terminal"] + 0.20)
+    self_containment = clamp01(self_containment)
+
+    halfway = max(1, len(features) // 2)
+    tension = any(feature["stakes"] or feature["emotion"]
+                  or feature["controversy"] for feature in features[:halfway])
+    resolution = any(feature["payoff_cue"] for feature in features[halfway:])
+    arc = (0.30 * (len(features) >= 2) + 0.30 * last["terminal"]
+           + 0.40 * (tension and resolution))
+    arc = clamp01(arc)
+
+    rate = clamp01((wps / max(0.5, index.source_wps)) / 1.35)
+    marks = min(1.0, sum(
+        feature["exclamation"] + feature["caps"]
+        + int(feature["repeated"]) + feature["intensity"]
+        + feature["laughter"] + feature["game_cue"]
+        for feature in features) / 3.0)
+    onset = clamp01(first["wps"] / 3.5)
+    energy = clamp01(0.50 * rate + 0.30 * marks + 0.20 * onset)
+
+    quotability = max(feature["quotability"] for feature in features)
+    emotion_hits = sum(feature["emotion"] + feature["reaction"]
+                       + (feature["first_person"] and feature["stakes"])
+                       for feature in features)
+    emotion = clamp01(emotion_hits / 3.0)
+    controversy = clamp01(sum(feature["controversy"] for feature in features) / 2.0)
+    humour = clamp01(sum(feature["humour"] for feature in features) / 2.0)
+
+    total_filler = sum(feature["filler_count"] for feature in features)
+    filler_penalty = min(0.08, (total_filler / max(1, total_words)) * 0.6)
+    meta_penalty = 0.15 if first["meta_open"] or last["meta_outro"] else 0.0
+    repeat_penalty = 0.05 if any(feature["repeated_bigram"]
+                                 or feature["false_start"] for feature in features) else 0.0
+    silence_penalty = min(0.08, max(0.0, max(
+        (feature["max_gap"] for feature in features), default=0.0) - 2.5) * 0.03)
+    mid_penalty = 0.0 if last["terminal"] else 0.20
+    low_density = 0.0
+    if duration > 120:
+        low_density = min(0.10, (duration - 120) / 600 * 0.10
+                          + (0.05 if wps < 1.2 else 0.0))
+    empty_penalty = 0.20 if total_words == 0 else 0.0
+    penalties = clamp01(filler_penalty + meta_penalty + repeat_penalty
+                        + silence_penalty + mid_penalty + low_density
+                        + empty_penalty)
+
+    parts = {
+        "hook": round(hook, 3), "payoff": round(payoff, 3),
+        "self_containment": round(self_containment, 3),
+        "arc": round(arc, 3), "energy": round(energy, 3),
+        "quotability": round(quotability, 3), "emotion": round(emotion, 3),
+        "controversy": round(controversy, 3), "humour": round(humour, 3),
+    }
+    weighted = sum(TEXT_WEIGHTS[key] * value for key, value in parts.items())
+    raw_score = clamp01(weighted - penalties)
+    text_score = calibrate_text(raw_score)
+    parts["penalties"] = round(penalties, 3)
+    parts["text_score"] = text_score
+    return parts, text_score, round(raw_score, 3)
+
+
+def score_window(sentences, a, b, source_wps=None, index=None):
+    """Score sentences[a..b]. Return (parts, text_score, raw_score)."""
+    index = index or WindowIndex(sentences, source_wps)
+    return index.score(a, b)
+
+
+def score_sentence(sent, source_wps=None):
+    parts, text_score, _ = score_window([sent], 0, 0, source_wps)
+    return {key: parts[key] for key in TEXT_WEIGHTS}, text_score
+
+
+def score_reason(parts):
+    """One short, deterministic explanation from the strongest/weakest parts."""
+    criteria = {key: value for key, value in parts.items()
+                if key in TEXT_WEIGHTS}
+    if not criteria:
+        return "No score parts"
+    labels = {"hook": "hook", "payoff": "payoff", "self_containment": "setup",
+              "arc": "arc", "energy": "energy", "quotability": "quotability",
+              "emotion": "emotion", "controversy": "controversy",
+              "humour": "humour"}
+    strong = sorted(criteria, key=lambda key: (-criteria[key], key))[:2]
+    weak = min(criteria, key=lambda key: (criteria[key], key))
+    text = f"Strong {labels[strong[0]]} and {labels[strong[1]]}; weak {labels[weak]}"
+    if parts.get("penalties", 0) >= 0.15:
+        text += "; boundary or meta penalty"
+    return text[:160]
 
 
 def make_hook(text, max_words=7):
