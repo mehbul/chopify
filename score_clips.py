@@ -12,14 +12,15 @@ Two scoring modes, both free:
      second (energy), lexical cue detection (hook / shock / humour /
      controversy / insight / emotion) and arc completion. Deterministic,
      zero dependency.
-  2. --llm MODEL - asks a LOCAL Ollama server (http://localhost:11434) in JSON
-     mode to pick the moments. Falls back to the heuristic automatically if
-     Ollama is unreachable or returns junk.
+  2. --llm MODEL - after deterministic discovery and dedupe, asks a LOCAL
+     Ollama server (http://localhost:11434) to rerank the top candidates by
+     +/-1.0. It cannot change timestamps. Falls back automatically if Ollama
+     is unreachable or returns junk.
 
 No paid APIs, no API keys. Usage:
     python score_clips.py work
     python score_clips.py work --llm qwen2.5:7b
-    python score_clips.py work --min-score 6.0 --max-clips 12
+    python score_clips.py work --min-score 8.0 --preferred-len 45s
 """
 import re
 import math
@@ -752,6 +753,49 @@ def select_candidates(candidates, min_score=8.0, max_clips=None,
     return segments, stats
 
 
+CANDIDATES_VERSION = 1
+
+
+def _write_json(path, data):
+    path = Path(path)
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps(data, ensure_ascii=False, indent=2,
+                               allow_nan=False), encoding="utf-8")
+    temp.replace(path)
+
+
+def save_candidates(workdir, candidates, stats, mode="heuristic"):
+    """Write the threshold-independent candidates.json envelope."""
+    envelope = {
+        "version": CANDIDATES_VERSION,
+        "mode": mode,
+        "content_profile": stats.get("content_profile", "mixed"),
+        "source_energy": stats.get("source_energy", 0.5),
+        "source_duration": stats.get("source_duration"),
+        "seeds": stats.get("seeds", 0),
+        "windows_scanned": stats.get("windows_scanned", 0),
+        "candidates": list(candidates),
+    }
+    _write_json(Path(workdir) / "candidates.json", envelope)
+
+
+def load_candidates(workdir):
+    """Return (candidates, stats) from candidates.json."""
+    path = Path(workdir) / "candidates.json"
+    if not path.exists():
+        raise SystemExit(f"No candidates at {path} - run discovery first.")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"candidates.json is not valid JSON: {exc}")
+    if not isinstance(data, dict) or not isinstance(data.get("candidates"), list):
+        raise SystemExit("candidates.json is missing a candidate list.")
+    stats = {key: data.get(key) for key in
+             ("source_duration", "content_profile", "source_energy", "seeds",
+              "windows_scanned", "mode")}
+    return data["candidates"], stats
+
+
 def make_hook(text, max_words=7):
     words = [_norm_token(w) for w in text.split()]
     words = [w for w in words if w and w not in FILLER_TOKENS]
@@ -838,23 +882,18 @@ def search_hits(sentences, query):
     return hits
 
 
-def search_candidates(sentences, query, min_len, max_len, max_clips):
+def search_candidates(sentences, query, min_len, max_len, max_clips=None):
     """Build scored clips around every sentence matching `query` (keyword search
     over the transcript - the feature users call a dealbreaker when missing)."""
-    taken = [False] * len(sentences)
-    accepted = []
-    for seed in search_hits(sentences, query):
-        if taken[seed] or len(accepted) >= max_clips:
-            continue
-        w = _grow_window(sentences, seed, taken, min_len, max_len)
-        if w is None:
-            continue
-        a, b = w
-        accepted.append(_make_segment(sentences, a, b))
-        for k in range(a, b + 1):
-            taken[k] = True
-    accepted.sort(key=lambda s: s["start"])
-    return accepted
+    hits = search_hits(sentences, query)
+    if not hits:
+        return []
+    found, _ = discover_candidates(sentences, min_len, max_len, seed_indices=hits)
+    kept = dedupe_candidates(found)
+    if max_clips is not None:
+        kept = sorted(kept, key=lambda item: (
+            -item["overall"], item["start"], item["duration"]))[:max_clips]
+    return sorted(kept, key=lambda item: (item["start"], item["end"]))
 
 
 def pick_segments(segments, spec):
@@ -878,83 +917,138 @@ def pick_segments(segments, spec):
     return [s for i, s in enumerate(segments, 1) if i in want]
 
 
+def format_duration(seconds, compact=False):
+    """Format seconds as 43.7s, 2m 22s, or 1h 02m."""
+    if seconds is None:
+        return "?"
+    seconds = max(0.0, float(seconds))
+    if compact and seconds < 60:
+        return f"{seconds:.1f}s"
+    total = int(round(seconds))
+    if total < 60:
+        return f"{total}s"
+    if total < 3600:
+        return f"{total // 60}m {total % 60:02d}s"
+    return f"{total // 3600}h {(total % 3600) // 60:02d}m"
+
+
 def print_table(segments):
     """Numbered candidate table - pairs with --clips for the review workflow."""
-    print("\n  #    start ->      end  score  hook", flush=True)
+    print("\n  #  rank  start ->      end  score  duration  hook", flush=True)
     for i, s in enumerate(segments, 1):
-        print(f"  {i:>2}  {s['start']:8.2f} -> {s['end']:8.2f}  {s['overall']:4.1f}/10"
+        rank = s.get("rank", i)
+        duration = s.get("duration", s["end"] - s["start"])
+        print(f"  {i:>2}  {rank:>4}  {s['start']:8.2f} -> {s['end']:8.2f}"
+              f"  {s['overall']:4.1f}/10  {format_duration(duration, True):>8}"
               f"  {s['hook']}", flush=True)
     print("  render a subset with --clips 1,3,5", flush=True)
 
+
+def print_explanations(segments):
+    """Print score parts and reasons for --explain."""
+    for i, segment in enumerate(segments, 1):
+        print(f"\n  [{i}] {segment['start']:.2f}s -> {segment['end']:.2f}s"
+              f"  {segment['overall']:.1f}/10", flush=True)
+        parts = segment.get("score_parts") or {}
+        if parts:
+            detail = ", ".join(f"{key} {value:.2f}" if isinstance(value, (int, float))
+                               else f"{key} {value}" for key, value in parts.items())
+            print(f"      parts: {detail}", flush=True)
+        if segment.get("reason"):
+            print(f"      reason: {segment['reason']}", flush=True)
+
 # ------------------------------------------------------------------- ollama
 
-def ollama_select(data, model, host, min_score, max_clips, min_len, max_len, timeout=1800):
-    """Ask local Ollama for clips. Returns list of dicts, or None on any failure."""
-    sentences = sentenceize(data["words"])
-    if not sentences:
+RERANK_SYSTEM = (
+    "You are a short-form video editor reviewing candidate clips. "
+    "For each candidate, return a score adjustment between -1.0 and 1.0. "
+    "Positive means stronger viral potential; negative means weaker. "
+    "Never change timestamps. Respond with JSON only: "
+    '[{"index": <int>, "adjustment": <-1..1>, "reason": "<short reason>"}]'
+)
+
+
+def _ollama_chat(model, host, messages, timeout=120):
+    """POST to the local Ollama chat endpoint and return parsed JSON content."""
+    payload = {
+        "model": model, "stream": False, "format": "json",
+        "options": {"temperature": 0.2},
+        "messages": messages,
+    }
+    request = urllib.request.Request(
+        host.rstrip("/") + "/api/chat",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        content = json.loads(response.read().decode("utf-8")).get(
+            "message", {}).get("content", "")
+    match = re.search(r"\[.*\]", content, re.S)
+    return json.loads(match.group(0)) if match else []
+
+
+def _candidate_key(candidate):
+    """Stable identity for merging rerank adjustments into candidate records."""
+    return (round(float(candidate["start"]), 2), round(float(candidate["end"]), 2),
+            candidate.get("seed_index"))
+
+
+def ollama_rerank(candidates, model, host=OLLAMA_HOST, timeout=120):
+    """Adjust the top 50 deduped candidates by -1.0..+1.0.
+
+    Returns an updated list, or None when Ollama is unavailable or returns junk.
+    Timestamps are never changed.
+    """
+    if not candidates:
         return None
-
-    def call(batch):
-        lines = "\n".join(f"{s['start']:.1f}-{s['end']:.1f}: {s['text']}" for s in batch)
-        sys_msg = LLM_SYSTEM.format(min_len=min_len, max_len=max_len,
-                                    max_clips=max_clips, min_score=min_score)
-        payload = {
-            "model": model, "stream": False, "format": "json",
-            "options": {"temperature": 0.2},
-            "messages": [{"role": "system", "content": sys_msg},
-                         {"role": "user", "content":
-                          f"Video duration: {data['duration']:.0f}s\n\nTranscript:\n{lines}"}],
-        }
-        req = urllib.request.Request(
-            host.rstrip("/") + "/api/chat",
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            resp = json.loads(r.read().decode("utf-8"))
-        content = resp.get("message", {}).get("content", "")
-        m = re.search(r"\[.*\]", content, re.S)
-        return json.loads(m.group(0)) if m else []
-
+    ranked = sorted(candidates, key=lambda item: (
+        -item["overall"], item["start"], item["duration"]))[:50]
+    sent = [{"index": i, "start": item["start"], "end": item["end"],
+             "text": str(item.get("text", ""))[:400]}
+            for i, item in enumerate(ranked)]
+    messages = [
+        {"role": "system", "content": RERANK_SYSTEM},
+        {"role": "user", "content": json.dumps(sent, ensure_ascii=False)},
+    ]
     try:
-        chunks = [sentences[i:i + 400] for i in range(0, len(sentences), 400)] or [[]]
-        raw = []
-        for batch in chunks:
-            raw.extend(call(batch) or [])
-    except Exception as e:                                   # noqa: BLE001
-        print(f"  Ollama unavailable ({e}) -> heuristic scoring", flush=True)
+        raw = _ollama_chat(model, host, messages, timeout)
+    except Exception as exc:                                 # noqa: BLE001
+        print(f"Ollama unavailable ({exc}) -> deterministic scores", flush=True)
+        return None
+    if not isinstance(raw, list):
         return None
 
-    valid = []
-    for it in raw:
-        try:
-            start, end = float(it["start"]), float(it["end"])
-            overall = float(it.get("overall", 0))
-            hook = str(it.get("hook") or "clip")
-        except (KeyError, TypeError, ValueError):
+    adjustments = {}
+    for entry in raw:
+        if not isinstance(entry, dict):
             continue
-        start = max(0.0, min(start, data["duration"] - min_len))
-        end = max(start + min_len, min(end, data["duration"]))
-        if end - start > max_len + 15:
-            end = start + max_len
-        valid.append({"start": round(start, 2), "end": round(end, 2),
-                      "hook": make_hook(hook, 8), "overall": round(overall, 1)})
-
-    # snap to sentence boundaries (nearest within 3s) so clips never cut mid-word
-    starts = [s["start"] for s in sentences]
-    ends = [s["end"] for s in sentences]
-    for seg in valid:
-        si = _nearest(starts, seg["start"])
-        ei = _nearest(ends, seg["end"])
-        if 2.0 < ends[ei] - starts[si] < max_len + 15:
-            seg["start"], seg["end"] = round(starts[si], 2), round(ends[ei], 2)
-
-    valid.sort(key=lambda s: s["start"])
-    dedup = []
-    for seg in valid:
-        if dedup and seg["start"] < dedup[-1]["end"] - 2:
+        index = entry.get("index")
+        adjustment = entry.get("adjustment")
+        if isinstance(index, bool) or not isinstance(index, int) or not 0 <= index < len(ranked):
             continue
-        dedup.append(seg)
-    return dedup[:max_clips]
+        if isinstance(adjustment, bool) or not isinstance(adjustment, (int, float)):
+            continue
+        if not math.isfinite(adjustment):
+            continue
+        adjustments[index] = (max(-1.0, min(1.0, float(adjustment))),
+                              str(entry.get("reason", ""))[:120])
+    if not adjustments:
+        return None
+
+    updated = [dict(item) for item in candidates]
+    positions = {_candidate_key(item): i for i, item in enumerate(updated)}
+    for index, (adjustment, reason) in adjustments.items():
+        position = positions.get(_candidate_key(ranked[index]))
+        if position is None:
+            continue
+        record = updated[position]
+        base = record.get("raw_score", record["overall"])
+        record["overall"] = round(max(0.0, min(10.0, float(base) + adjustment)), 2)
+        record["llm_adjustment"] = adjustment
+        record["llm_model"] = model
+        if reason and reason not in str(record.get("reason", "")):
+            base_reason = str(record.get("reason", ""))[:160]
+            record["reason"] = (base_reason + " | " + reason)[:160]
+    return updated
 
 
 def _nearest(values, t):
@@ -974,61 +1068,155 @@ def _nearest(values, t):
 
 # ----------------------------------------------------------------- run / cli
 
-def run(workdir, llm=None, host=OLLAMA_HOST, min_score=None, max_clips=10,
-        min_len=20, max_len=75, search=None, pick=None, semantic=None,
-        embed_model="nomic-embed-text"):
-    """Score the transcript in workdir and write workdir/segments.json.
+def discover(workdir, min_len=15, max_len=300, preferred_len=None,
+             band=(30, 120), progress=None):
+    """Load the transcript, discover candidates, write candidates.json."""
+    workdir = Path(workdir)
+    data = load_transcript(workdir)
+    sentences = sentenceize(data["words"])
+    print(f"Transcript: {len(sentences)} sentences over "
+          f"{data['duration']:.0f}s", flush=True)
+    candidates, stats = discover_candidates(
+        sentences, min_len, max_len, preferred_len=preferred_len,
+        band=band, progress=progress)
+    save_candidates(workdir, candidates, stats)
+    return candidates, stats
+
+
+def select(workdir, min_score=8.0, max_clips=None, preferred_len=None,
+           band=(30, 120), llm=None, host=OLLAMA_HOST, mode="heuristic"):
+    """Read candidates.json, write segments.json and selection.json."""
+    workdir = Path(workdir)
+    candidates, discovery = load_candidates(workdir)
+    deduped = dedupe_candidates(candidates, preferred_len=preferred_len,
+                                band=band, min_score=min_score)
+    if llm:
+        adjusted = ollama_rerank(deduped[:50], llm, host)
+        if adjusted is not None:
+            by_key = {_candidate_key(item): item for item in adjusted}
+            candidates = [{**item, **by_key[_candidate_key(item)]}
+                          if _candidate_key(item) in by_key else item
+                          for item in candidates]
+            deduped = [by_key.get(_candidate_key(item), item) for item in deduped]
+            mode = "ollama"
+            save_candidates(workdir, candidates, discovery, mode=mode)
+
+    segments, stats = select_candidates(
+        deduped, min_score=min_score, max_clips=max_clips,
+        preferred_len=preferred_len, band=band, dedupe=False,
+        discovery=discovery, mode=mode)
+    _write_json(workdir / "segments.json", segments)
+    _write_json(workdir / "selection.json", stats)
+    return segments, mode
+
+
+def _select_supplied(workdir, records, stats, min_score, max_clips,
+                     preferred_len, mode):
+    """Write search/semantic records through the shared selection contract."""
+    save_candidates(workdir, records, stats, mode=mode)
+    deduped = dedupe_candidates(records, preferred_len=preferred_len)
+    segments, selection = select_candidates(
+        deduped, min_score=min_score, max_clips=max_clips,
+        preferred_len=preferred_len, dedupe=False, discovery=stats, mode=mode)
+    _write_json(Path(workdir) / "segments.json", segments)
+    _write_json(Path(workdir) / "selection.json", selection)
+    return segments
+
+
+def _no_clips_message(workdir, threshold):
+    """Print the real score range and a threshold suggestion."""
+    try:
+        selection = json.loads((Path(workdir) / "selection.json").read_text(
+            encoding="utf-8"))
+    except (OSError, ValueError):
+        selection = {}
+    low, high = selection.get("score_min"), selection.get("score_max")
+    if low is None or high is None:
+        print("No candidates were discovered. Try a shorter --min-len.",
+              flush=True)
+        return
+    suggestion = max(0.0, round(threshold - 0.5, 1))
+    print(f"No clips reached {threshold:.1f}. Candidate scores "
+          f"{low:.2f}-{high:.2f}. Lower --min-score (for example "
+          f"{suggestion:.1f}) or run --action prepare to review the range.",
+          flush=True)
+
+
+def run(workdir, llm=None, host=OLLAMA_HOST, min_score=None, max_clips=None,
+        min_len=15, max_len=300, search=None, pick=None, semantic=None,
+        embed_model="nomic-embed-text", preferred_len=None, explain=False):
+    """Score the transcript in workdir and write the discovery artifacts.
 
     Returns (segments, mode): 'ollama', 'heuristic', or 'semantic'.
     search='keywords' overrides scoring with keyword-search clip finding;
     pick='1,3,5' keeps only the numbered candidates (review workflow).
     """
     workdir = Path(workdir)
-    data = load_transcript(workdir)
-    sentences = sentenceize(data["words"])
-    print(f"Transcript: {len(sentences)} sentences over {data['duration']:.0f}s", flush=True)
-
+    if isinstance(preferred_len, str):
+        preferred_len = parse_duration(preferred_len)
+    effective_score = 8.0 if min_score is None else min_score
     mode = "heuristic"
-    segments = None
+    if llm and (search or semantic):
+        print("Ollama reranking is ignored for search results.", flush=True)
+
     if semantic:
-        from semantic import candidates
-        segments = candidates(sentences, semantic, embed_model, workdir, min_len, max_len, max_clips)
+        data = load_transcript(workdir)
+        sentences = sentenceize(data["words"])
+        print(f"Transcript: {len(sentences)} sentences over "
+              f"{data['duration']:.0f}s", flush=True)
+        from semantic import candidates as semantic_candidates
+        records = semantic_candidates(sentences, semantic, embed_model, workdir,
+                                      min_len, max_len, max_clips)
         mode = "semantic"
-        if not segments:
+        effective_score = 0.0
+        if not records:
             raise ValueError("No complete clip windows found for semantic search.")
+        stats = {"source_duration": data["duration"], "seeds": len(sentences),
+                 "windows_scanned": 0, "content_profile": "mixed",
+                 "source_energy": 0.5}
+        segments = _select_supplied(workdir, records, stats, effective_score,
+                                    max_clips, preferred_len, mode)
     elif search:
-        segments = search_candidates(sentences, search, min_len, max_len, max_clips)
-        if not segments:
+        data = load_transcript(workdir)
+        sentences = sentenceize(data["words"])
+        print(f"Transcript: {len(sentences)} sentences over "
+              f"{data['duration']:.0f}s", flush=True)
+        hits = search_hits(sentences, search)
+        if not hits:
             raise SystemExit(
                 f"--search '{search}': no transcript sentence matched. "
                 "Try fewer or different keywords.")
-        print(f"Keyword search '{search}': {len(segments)} match(es)", flush=True)
-    elif llm:
-        ms = min_score if min_score is not None else 8.0
-        segments = ollama_select(data, llm, host, ms, max_clips, min_len, max_len)
-        if segments is not None:
-            mode = "ollama"
-    if segments is None:
-        ms = min_score if min_score is not None else 6.5
-        segments = build_candidates(sentences, min_len, max_len, max_clips)
-        segments = [s for s in segments if s["overall"] >= ms]
+        found, stats = discover_candidates(
+            sentences, min_len, max_len, preferred_len=preferred_len,
+            seed_indices=hits)
+        records = dedupe_candidates(found, preferred_len=preferred_len)
+        mode = "heuristic"
+        effective_score = 0.0
+        print(f"Keyword search '{search}': {len(records)} match(es)", flush=True)
+        segments = _select_supplied(workdir, records, stats, effective_score,
+                                    max_clips, preferred_len, mode)
+    else:
+        discover(workdir, min_len=min_len, max_len=max_len,
+                 preferred_len=preferred_len)
+        segments, mode = select(workdir, min_score=effective_score,
+                                max_clips=max_clips,
+                                preferred_len=preferred_len,
+                                llm=llm, host=host)
 
-    if not segments:                       # never ship zero clips silently
-        print("No clip reached the threshold - keeping the single best candidate.",
-              flush=True)
-        segments = build_candidates(sentences, min_len, max_len, 1)
+    if not segments:
+        _no_clips_message(workdir, effective_score)
 
     segments = pick_segments(segments, pick)
-    if not segments:
-        if pick:
-            raise SystemExit("Nothing to render: --clips removed every candidate.")
-        raise SystemExit("No usable clips found - the transcript may be too short "
-                         f"for --min-len {min_len}s.")
+    if not segments and pick:
+        raise SystemExit("Nothing to render: --clips removed every candidate.")
 
-    print_table(segments)
-    out = workdir / "segments.json"
-    out.write_text(json.dumps(segments, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"Wrote {out}  (mode={mode}, {len(segments)} clips)", flush=True)
+    if segments:
+        print_table(segments)
+    if explain and segments:
+        print_explanations(segments)
+    if segments:
+        print(f"Wrote {workdir / 'segments.json'}  "
+              f"(mode={mode}, {len(segments)} clips)", flush=True)
     return segments, mode
 
 
@@ -1040,10 +1228,15 @@ def main():
     ap.add_argument("--host", default=OLLAMA_HOST,
                     help="Ollama host (default http://localhost:11434)")
     ap.add_argument("--min-score", type=float, default=None,
-                    help="keep clips at/above this score (default 6.5 heuristic, 8.0 llm)")
-    ap.add_argument("--max-clips", type=int, default=10)
-    ap.add_argument("--min-len", type=int, default=20, help="min clip seconds")
-    ap.add_argument("--max-len", type=int, default=75, help="max clip seconds")
+                    help="keep clips at/above this score (default 8.0)")
+    ap.add_argument("--max-clips", type=int, default=None,
+                    help="optional safety cap; default all passing clips")
+    ap.add_argument("--min-len", type=int, default=15, help="min clip seconds")
+    ap.add_argument("--max-len", type=int, default=300, help="max clip seconds")
+    ap.add_argument("--preferred-len", default=None, metavar="D",
+                    help="soft preferred length, e.g. 45s, 2m, 1m30s")
+    ap.add_argument("--explain", action="store_true",
+                    help="print score parts and reasons")
     ap.add_argument("--search", default=None, metavar="KEYWORDS",
                     help="skip virality scoring: build clips around transcript "
                          "sentences containing ALL keywords (e.g. --search \"pricing\")")
@@ -1055,22 +1248,10 @@ def main():
     args = ap.parse_args()
     run(args.workdir, args.llm, args.host, args.min_score, args.max_clips,
         args.min_len, args.max_len, search=args.search, pick=args.clips,
-        semantic=args.semantic, embed_model=args.embed_model)
+        semantic=args.semantic, embed_model=args.embed_model,
+        preferred_len=args.preferred_len, explain=args.explain)
     print("SCORING COMPLETE", flush=True)
 
-
-LLM_SYSTEM = (
-    "You are a short-form video editor. You receive a timestamped transcript. "
-    "Select the moments most likely to go viral as self-contained clips. Rules:\n"
-    "- Each clip MUST be a complete thought: hook, build, payoff. Never end mid-sentence.\n"
-    "- Clip length between {min_len} and {max_len} seconds.\n"
-    "- Return AT MOST {max_clips} clips, taken from DIFFERENT parts of the video.\n"
-    "- Rate each clip 0-10 on hook, shock, humour, controversy, insight, emotion, "
-    "energy and complete arc; put the mean in 'overall'.\n"
-    "- Only include clips with overall >= {min_score}.\n"
-    'Respond with JSON only, an array: [{{"start": <sec>, "end": <sec>, '
-    '"hook": "<3-7 word title>", "overall": <0-10>}}]'
-)
 
 if __name__ == "__main__":
     main()

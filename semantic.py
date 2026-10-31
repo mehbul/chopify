@@ -75,21 +75,20 @@ def search(sentences, query, model=DEFAULT_MODEL, cache_dir=None, embed=None):
 
 
 def candidates(sentences, query, model, cache_dir, min_len, max_len, max_clips):
-    from score_clips import _grow_window, _make_segment
-    taken = [False] * len(sentences)
-    result = []
-    for match in search(sentences, query, model, cache_dir):
-        seed = match["index"]
-        if taken[seed]:
-            continue
-        window = _grow_window(sentences, seed, taken, min_len, max_len)
-        if window:
-            a, b = window
-            item = _make_segment(sentences, a, b)
-            item["similarity"] = round(match["similarity"], 4)
-            result.append(item)
-            for i in range(a, b + 1):
-                taken[i] = True
-        if len(result) >= max_clips:
-            break
-    return sorted(result, key=lambda s: s["start"])
+    from score_clips import dedupe_candidates, discover_candidates
+
+    matches = search(sentences, query, model, cache_dir)
+    similarity = {match["index"]: round(match["similarity"], 4)
+                  for match in matches[:200]}
+    if not similarity:
+        return []
+    found, _ = discover_candidates(sentences, min_len, max_len,
+                                   seed_indices=list(similarity))
+    for item in found:
+        item["similarity"] = similarity.get(item["seed_index"], 0.0)
+    kept = dedupe_candidates(found)
+    if max_clips is not None:
+        kept = sorted(kept, key=lambda item: (
+            -item.get("similarity", 0.0), -item["overall"],
+            item["start"]))[:max_clips]
+    return sorted(kept, key=lambda item: (item["start"], item["end"]))

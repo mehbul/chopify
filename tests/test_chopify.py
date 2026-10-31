@@ -394,6 +394,59 @@ class TestBuildCandidatesCompat:
         assert len(segs) == 2
 
 
+class TestArtifacts:
+    def test_run_writes_candidates_and_selection(self, workdir):
+        segs, mode = score_clips.run(workdir, min_score=0, min_len=4, max_len=20)
+        assert mode == "heuristic"
+        candidates = json.loads((workdir / "candidates.json").read_text())
+        selection = json.loads((workdir / "selection.json").read_text())
+        assert candidates["version"] == 1
+        assert candidates["candidates"]
+        assert selection["candidates"] >= len(segs)
+        assert selection["passing"] == len(segs)
+        assert selection["min_score"] == 0
+
+    def test_zero_passing_writes_empty_segments(self, workdir, monkeypatch):
+        low = candidate(0, 20, 7.0)
+        monkeypatch.setattr(score_clips, "discover_candidates",
+                            lambda *a, **k: ([low], {"seeds": 1,
+                            "windows_scanned": 1, "source_duration": 20.0,
+                            "content_profile": "mixed", "source_energy": 0.5}))
+        segs, _ = score_clips.run(workdir, min_score=8.0, min_len=4, max_len=20)
+        assert segs == []
+        assert json.loads((workdir / "segments.json").read_text()) == []
+
+    def test_llm_adjustment_changes_score_not_times(self, workdir, monkeypatch):
+        def fake_chat(model, host, messages, timeout):
+            return [{"index": 0, "adjustment": 0.4, "reason": "strong reaction"}]
+        monkeypatch.setattr(score_clips, "_ollama_chat", fake_chat)
+        segs, mode = score_clips.run(workdir, min_score=0, min_len=4, max_len=20,
+                                     llm="test-model")
+        assert mode == "ollama"
+        assert segs
+        assert any(s.get("overall") != s.get("raw_score") for s in segs)
+
+    def test_invalid_llm_response_is_ignored(self, workdir, monkeypatch):
+        monkeypatch.setattr(score_clips, "_ollama_chat",
+                            lambda *a, **k: [{"index": 99, "adjustment": 9}])
+        segs, mode = score_clips.run(workdir, min_score=0, min_len=4, max_len=20,
+                                     llm="test-model")
+        assert mode == "heuristic"
+        assert segs
+
+
+class TestSearchSharesBuilder:
+    def test_keyword_results_are_deduped_and_start_sorted(self, sample_words):
+        sents = score_clips.sentenceize(sample_words)
+        segs = score_clips.search_candidates(
+            sents, "biggest mistake", min_len=5, max_len=30, max_clips=None)
+        assert segs
+        assert [s["start"] for s in segs] == sorted(s["start"] for s in segs)
+        for i, a in enumerate(segs):
+            for b in segs[i + 1:]:
+                assert score_clips.overlap_ratio(a, b) <= 0.55
+
+
 class TestNearest:
     def test_exact_and_between(self):
         assert score_clips._nearest([1, 5, 9], 5) == 1
@@ -404,14 +457,14 @@ class TestNearest:
 
 class TestRun:
     def test_run_writes_segments(self, workdir):
-        segs, mode = score_clips.run(workdir)
+        segs, mode = score_clips.run(workdir, min_score=0)
         assert mode == "heuristic"
         assert (workdir / "segments.json").exists()
         on_disk = json.loads((workdir / "segments.json").read_text())
         assert len(on_disk) == len(segs) >= 1
 
     def test_ollama_fallback_on_dead_server(self, workdir):
-        segs, mode = score_clips.run(workdir, llm="qwen2.5:7b",
+        segs, mode = score_clips.run(workdir, llm="qwen2.5:7b", min_score=0,
                                      host="http://127.0.0.1:1", max_clips=3)
         assert mode == "heuristic"       # graceful fallback, no crash
         assert len(segs) >= 1
@@ -423,7 +476,7 @@ class TestRun:
     def test_bom_transcript_accepted(self, workdir):
         raw = (workdir / "transcript.json").read_bytes()
         (workdir / "transcript.json").write_bytes(b"\xef\xbb\xbf" + raw)
-        segs, _ = score_clips.run(workdir)
+        segs, _ = score_clips.run(workdir, min_score=0)
         assert len(segs) >= 1
 
 
@@ -648,12 +701,12 @@ class TestPick:
             score_clips.pick_segments([seg(0, 5, "a")], "x")
 
     def test_run_pick_selects_one(self, workdir):
-        segs, _ = score_clips.run(workdir, min_len=4, max_len=20, pick="1")
+        segs, _ = score_clips.run(workdir, min_score=0, min_len=4, max_len=20, pick="1")
         assert len(segs) == 1
 
     def test_run_pick_out_of_range_exits(self, workdir):
         with pytest.raises(SystemExit):
-            score_clips.run(workdir, min_len=4, max_len=20, pick="99")
+            score_clips.run(workdir, min_score=0, min_len=4, max_len=20, pick="99")
 
 
 class TestPrintTable:
