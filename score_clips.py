@@ -24,6 +24,7 @@ No paid APIs, no API keys. Usage:
 import re
 import math
 import json
+import bisect
 import argparse
 import urllib.request
 from pathlib import Path
@@ -301,6 +302,8 @@ def sentence_features(sent):
         "intensity": _cue_hits(low, INTENSITY_WORDS),
         "laughter": _cue_hits(low, HUMOUR_CUES),
         "reaction": _cue_hits(low, REACTION_PHRASES),
+        "personal_stakes": int(any(
+            token in tokens for token in ("i", "me", "my", "we", "our", "us"))) * _cue_hits(low, STAKES_WORDS),
         "exclamation": text.count("!"),
         "caps": sum(1 for word in text.split()
                     if len(word) >= 3 and word.isupper()),
@@ -312,12 +315,41 @@ def sentence_features(sent):
     }
 
 
+PREFIX_KEYS = (
+    "hook", "payoff_cue", "curiosity", "stakes", "superlative", "negation",
+    "earlier_ref", "emotion", "reaction", "personal_stakes", "controversy",
+    "humour", "exclamation", "caps", "repeated", "intensity", "laughter",
+    "game_cue",
+    "filler_count", "repeated_bigram", "false_start", "words",
+)
+
+
+def build_prefix_sums(features):
+    """Cumulative totals for the numeric sentence features."""
+    prefix = {key: [0] for key in PREFIX_KEYS}
+    for feature in features:
+        for key in PREFIX_KEYS:
+            value = feature.get(key, 0)
+            if isinstance(value, bool):
+                value = int(value)
+            prefix[key].append(prefix[key][-1] + value)
+    return prefix
+
+
+def _span_sum(index, key, a, b):
+    """Sum one numeric feature over sentences[a..b] inclusive."""
+    if a > b:
+        return 0
+    return index.prefix[key][b + 1] - index.prefix[key][a]
+
+
 class WindowIndex:
     """Per-sentence features plus fast window scoring."""
 
     def __init__(self, sentences, source_wps=None):
         self.sentences = sentences
         self.features = [sentence_features(sent) for sent in sentences]
+        self.prefix = build_prefix_sums(self.features)
         rates = sorted(f["wps"] for f in self.features if f["words"])
         if source_wps is not None:
             self.source_wps = max(0.5, float(source_wps))
@@ -338,12 +370,11 @@ def _score_indexed(index, a, b):
         return ({key: 0.0 for key in TEXT_WEIGHTS} |
                 {"penalties": 0.2, "text_score": 0.0}), 0.0, 0.0
     first, last = features[0], features[-1]
-    first_two, last_two = features[:2], features[-2:]
     duration = max(0.1, last["end"] - first["start"])
-    total_words = sum(feature["words"] for feature in features)
+    total_words = _span_sum(index, "words", a, b)
     wps = total_words / duration
 
-    hook_cues = (sum(feature["hook"] for feature in first_two)
+    hook_cues = (_span_sum(index, "hook", a, min(b, a + 1))
                  + first["curiosity"] + first["stakes"]
                  + first["superlative"] + first["negation"])
     hook = (0.45 * min(1.0, hook_cues / 4.0)
@@ -358,7 +389,7 @@ def _score_indexed(index, a, b):
     first_tokens = set(first["tokens"]) - STOPWORDS
     last_tokens = set(last["tokens"]) - STOPWORDS
     overlap = 1.0 if first_tokens & last_tokens else 0.0
-    payoff_cues = sum(feature["payoff_cue"] for feature in last_two)
+    payoff_cues = _span_sum(index, "payoff_cue", max(a, b - 1), b)
     payoff = (0.35 * last["terminal"]
               + 0.25 * min(1.0, payoff_cues / 2.0)
               + 0.20 * overlap
@@ -366,41 +397,43 @@ def _score_indexed(index, a, b):
     payoff = clamp01(payoff)
 
     start_clean = not first["anaphoric"] and not first["meta_open"]
-    no_earlier = not any(feature["earlier_ref"] for feature in features)
+    no_earlier = _span_sum(index, "earlier_ref", a, b) == 0
     self_containment = (0.35 * start_clean + 0.25 * no_earlier
                         + 0.20 * last["terminal"] + 0.20)
     self_containment = clamp01(self_containment)
 
-    halfway = max(1, len(features) // 2)
-    tension = any(feature["stakes"] or feature["emotion"]
-                  or feature["controversy"] for feature in features[:halfway])
-    resolution = any(feature["payoff_cue"] for feature in features[halfway:])
+    halfway = a + max(1, (b - a + 1) // 2)
+    tension = (_span_sum(index, "stakes", a, halfway - 1)
+               + _span_sum(index, "emotion", a, halfway - 1)
+               + _span_sum(index, "controversy", a, halfway - 1)) > 0
+    resolution = _span_sum(index, "payoff_cue", halfway, b) > 0
     arc = (0.30 * (len(features) >= 2) + 0.30 * last["terminal"]
            + 0.40 * (tension and resolution))
     arc = clamp01(arc)
 
     rate = clamp01((wps / max(0.5, index.source_wps)) / 1.35)
-    marks = min(1.0, sum(
-        feature["exclamation"] + feature["caps"]
-        + int(feature["repeated"]) + feature["intensity"]
-        + feature["laughter"] + feature["game_cue"]
-        for feature in features) / 3.0)
+    marks = min(1.0, (_span_sum(index, "exclamation", a, b)
+                      + _span_sum(index, "caps", a, b)
+                      + _span_sum(index, "repeated", a, b)
+                      + _span_sum(index, "intensity", a, b)
+                      + _span_sum(index, "laughter", a, b)
+                      + _span_sum(index, "game_cue", a, b)) / 3.0)
     onset = clamp01(first["wps"] / 3.5)
     energy = clamp01(0.50 * rate + 0.30 * marks + 0.20 * onset)
 
     quotability = max(feature["quotability"] for feature in features)
-    emotion_hits = sum(feature["emotion"] + feature["reaction"]
-                       + (feature["first_person"] and feature["stakes"])
-                       for feature in features)
+    emotion_hits = (_span_sum(index, "emotion", a, b)
+                    + _span_sum(index, "reaction", a, b)
+                    + _span_sum(index, "personal_stakes", a, b))
     emotion = clamp01(emotion_hits / 3.0)
-    controversy = clamp01(sum(feature["controversy"] for feature in features) / 2.0)
-    humour = clamp01(sum(feature["humour"] for feature in features) / 2.0)
+    controversy = clamp01(_span_sum(index, "controversy", a, b) / 2.0)
+    humour = clamp01(_span_sum(index, "humour", a, b) / 2.0)
 
-    total_filler = sum(feature["filler_count"] for feature in features)
+    total_filler = _span_sum(index, "filler_count", a, b)
     filler_penalty = min(0.08, (total_filler / max(1, total_words)) * 0.6)
     meta_penalty = 0.15 if first["meta_open"] or last["meta_outro"] else 0.0
-    repeat_penalty = 0.05 if any(feature["repeated_bigram"]
-                                 or feature["false_start"] for feature in features) else 0.0
+    repeat_penalty = 0.05 if (_span_sum(index, "repeated_bigram", a, b)
+                              + _span_sum(index, "false_start", a, b)) else 0.0
     silence_penalty = min(0.08, max(0.0, max(
         (feature["max_gap"] for feature in features), default=0.0) - 2.5) * 0.03)
     mid_penalty = 0.0 if last["terminal"] else 0.20
@@ -455,6 +488,125 @@ def score_reason(parts):
     if parts.get("penalties", 0) >= 0.15:
         text += "; boundary or meta penalty"
     return text[:160]
+
+
+def first_sentence_at_or_after(ends, target):
+    """Index of the first sentence end at or after target seconds."""
+    return bisect.bisect_left(ends, target)
+
+
+def choose_seed_endpoints(choices, preferred_len=None, band=(30, 120)):
+    """Return up to two endpoint records: quality_best then preferred_best."""
+    if not choices:
+        return []
+    target = preferred_len if preferred_len is not None else sum(band) / 2.0
+
+    quality = min(choices, key=lambda item: (
+        -item["overall"], item["duration"], item["start"], item["end"]))
+    quality = dict(quality, endpoint_kind="quality_best")
+
+    near = [item for item in choices
+            if item["overall"] >= quality["overall"] - 0.15 - 1e-9]
+    preferred = min(near, key=lambda item: (
+        abs(item["duration"] - target), -item["overall"],
+        item["duration"], item["end"]))
+    if preferred["end"] == quality["end"]:
+        return [quality]
+    preferred = dict(preferred, endpoint_kind="preferred_best")
+    return [quality, preferred]
+
+
+def candidate_record(index, seed, end_index, endpoint_kind="quality_best"):
+    """Build one candidate record from a scored sentence range."""
+    parts, text_score, _ = index.score(seed, end_index)
+    start = float(index.sentences[seed]["start"])
+    end = float(index.sentences[end_index]["end"])
+    text = " ".join(word["word"] for sentence_ in index.sentences[seed:end_index + 1]
+                    for word in sentence_["words"])
+    return {
+        "start": round(start, 2),
+        "end": round(end, 2),
+        "duration": round(end - start, 2),
+        "hook": make_hook(index.sentences[seed]["text"]),
+        "text": text,
+        "raw_score": text_score,
+        "overall": text_score,
+        "score_parts": parts,
+        "profile": "mixed",
+        "seed_index": seed,
+        "seed_kind": "sentence",
+        "endpoint_kind": endpoint_kind,
+        "reason": score_reason(parts),
+    }
+
+
+def discover_candidates(sentences, min_len=15, max_len=300,
+                        preferred_len=None, band=(30, 120),
+                        seed_indices=None, progress=None):
+    """Evaluate every seed against the duration ladder.
+
+    Returns (start-sorted candidates, stats). No threshold is applied here.
+    """
+    if min_len > max_len:
+        raise ValueError("Minimum clip length cannot exceed maximum clip length.")
+    empty_stats = {"seeds": 0, "windows_scanned": 0, "source_duration": 0.0,
+                   "content_profile": "mixed", "source_energy": 0.5}
+    if not sentences:
+        return [], empty_stats
+
+    ladder = duration_ladder(min_len, max_len, preferred_len)
+    index = WindowIndex(sentences)
+    seeds = normalize_seed_indices(sentences, seed_indices)
+    ends = [float(sentence_["end"]) for sentence_ in sentences]
+    last_index = len(sentences) - 1
+    candidates = []
+    windows_scanned = 0
+    total = len(seeds)
+
+    def evaluate(seed, end_index, choices):
+        if end_index < seed or end_index > last_index:
+            return
+        if not is_arc_complete(sentences[end_index]["text"]):
+            return
+        duration = ends[end_index] - sentences[seed]["start"]
+        if duration < min_len or duration > max_len:
+            return
+        if end_index not in choices:
+            choices[end_index] = candidate_record(index, seed, end_index)
+
+    for done, seed in enumerate(seeds, 1):
+        start = sentences[seed]["start"]
+        windows_scanned += len(ladder)
+        if ends[seed] - start <= max_len:
+            choices = {}
+            for target in ladder:
+                j0 = first_sentence_at_or_after(ends, start + target)
+                low = max(seed, j0 - 2)
+                high = min(last_index, j0 + 2)
+                for end_index in range(low, high + 1):
+                    evaluate(seed, end_index, choices)
+            if choices:
+                best = max(choices, key=lambda end_index: (
+                    choices[end_index]["overall"],
+                    -choices[end_index]["duration"], -end_index))
+                low = max(seed, best - 2)
+                high = min(last_index, best + 2)
+                for end_index in range(low, high + 1):
+                    evaluate(seed, end_index, choices)
+                candidates.extend(choose_seed_endpoints(
+                    list(choices.values()), preferred_len, band))
+        if progress and done % 500 == 0:
+            progress("scanning", done, total)
+
+    candidates.sort(key=lambda item: (item["start"], item["end"]))
+    stats = {
+        "seeds": len(seeds),
+        "windows_scanned": windows_scanned,
+        "source_duration": float(sentences[-1]["end"]),
+        "content_profile": "mixed",
+        "source_energy": 0.5,
+    }
+    return candidates, stats
 
 
 def make_hook(text, max_words=7):

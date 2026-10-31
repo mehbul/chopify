@@ -199,6 +199,98 @@ class TestCandidates:
             assert a["end"] <= b["start"] + 0.01
 
 
+def numbered_sentences(count=8, step=5.0):
+    words = []
+    for i in range(count):
+        text = (f"Sentence number {i} is a complete thought about the topic."
+                if i % 2 == 0 else
+                f"Here is the insane secret number {i}, and it changed everything.")
+        words += sentence(text, i * step)
+    return score_clips.sentenceize(words)
+
+
+class TestDiscovery:
+    def test_every_sentence_is_a_seed(self):
+        sents = numbered_sentences()
+        candidates, stats = score_clips.discover_candidates(
+            sents, min_len=2, max_len=30)
+        assert {c["seed_index"] for c in candidates} == set(range(len(sents)))
+        assert stats["seeds"] == len(sents)
+        assert stats["windows_scanned"] == len(sents) * len(
+            score_clips.duration_ladder(2, 30))
+
+    def test_overlapping_start_is_not_marked_taken(self):
+        sents = numbered_sentences()
+        candidates, _ = score_clips.discover_candidates(
+            sents, min_len=5, max_len=30)
+        starts = {c["start"] for c in candidates}
+        assert sents[2]["start"] in starts
+        assert any(c["start"] == sents[2]["start"] and c["end"] >= sents[4]["end"]
+                   for c in candidates)
+
+    def test_seed_indices_restrict_starts(self):
+        sents = numbered_sentences()
+        candidates, _ = score_clips.discover_candidates(
+            sents, min_len=5, max_len=30, seed_indices=[1, 3])
+        assert {c["seed_index"] for c in candidates} == {1, 3}
+
+    def test_records_end_on_complete_sentences(self):
+        sents = numbered_sentences()
+        candidates, _ = score_clips.discover_candidates(
+            sents, min_len=5, max_len=30)
+        ends = {s["end"] for s in sents}
+        assert all(c["end"] in ends for c in candidates)
+        assert all(score_clips.is_arc_complete(s["text"])
+                   for s in sents if s["end"] in {c["end"] for c in candidates})
+
+    def test_candidate_shape_and_limits(self):
+        sents = numbered_sentences()
+        candidates, _ = score_clips.discover_candidates(
+            sents, min_len=5, max_len=30)
+        for c in candidates:
+            assert 5 <= c["duration"] <= 30
+            assert c["overall"] == c["raw_score"]
+            assert c["endpoint_kind"] in {"quality_best", "preferred_best"}
+            assert c["score_parts"]["text_score"] == c["overall"]
+            assert c["reason"]
+
+
+def choice(end, score, start=0.0):
+    return {"start": start, "end": end, "duration": end - start,
+            "overall": score, "raw_score": score}
+
+
+class TestEndpointChoice:
+    def test_quality_and_preferred_endpoints_are_kept(self):
+        choices = [choice(20, 7.00), choice(45, 7.00), choice(50, 7.05)]
+        kept = score_clips.choose_seed_endpoints(choices, preferred_len=45,
+                                                 band=(30, 120))
+        assert [c["endpoint_kind"] for c in kept] == [
+            "quality_best", "preferred_best"]
+        assert kept[0]["end"] == 50
+        assert kept[1]["end"] == 45
+
+    def test_preferred_endpoint_must_be_within_tolerance(self):
+        choices = [choice(20, 6.80), choice(50, 7.05)]
+        kept = score_clips.choose_seed_endpoints(choices, preferred_len=20,
+                                                 band=(30, 120))
+        assert len(kept) == 1
+        assert kept[0]["end"] == 50
+
+    def test_band_is_used_when_no_preference(self):
+        choices = [choice(20, 7.00), choice(60, 7.00)]
+        kept = score_clips.choose_seed_endpoints(choices, preferred_len=None,
+                                                 band=(30, 120))
+        assert len(kept) == 2
+        assert kept[1]["end"] == 60
+
+    def test_duplicate_endpoint_is_not_kept_twice(self):
+        choices = [choice(45, 7.00)]
+        kept = score_clips.choose_seed_endpoints(choices, preferred_len=45,
+                                                 band=(30, 120))
+        assert len(kept) == 1
+
+
 class TestNearest:
     def test_exact_and_between(self):
         assert score_clips._nearest([1, 5, 9], 5) == 1
