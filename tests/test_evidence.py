@@ -64,3 +64,56 @@ def test_build_audio_timeline_decodes_a_wav(tmp_path):
     assert timeline is not None
     assert timeline.duration == pytest.approx(2.0, abs=0.1)
     assert len(timeline.rms) == 2
+
+
+# ------------------------------------------------------------ evidence scoring
+
+def candidate(start, end, score=7.5):
+    return {"start": start, "end": end, "duration": end - start,
+            "overall": score, "raw_score": score, "reason": "text"}
+
+
+def test_audio_evidence_prefers_a_loud_reaction():
+    samples = np.concatenate([tone(4), noise(1, 0.8), tone(4)])
+    timeline = evidence.features_from_samples(samples)
+    quiet = evidence.audio_evidence(timeline, 0, 4)
+    loud = evidence.audio_evidence(timeline, 3, 5)
+    assert loud["score"] > quiet["score"] + 1.0
+    assert 0 <= loud["score"] <= 10
+
+
+def test_audio_evidence_is_neutral_for_missing_timeline():
+    got = evidence.audio_evidence(None, 0, 10)
+    assert got["score"] == 5.0
+
+
+def test_profile_thresholds():
+    assert evidence.content_profile(2.5, 0.1, 2, 0.01) == "talk"
+    assert evidence.content_profile(0.4, 0.7, 20, 0.2) == "gameplay/action"
+    assert evidence.content_profile(1.7, 0.4, 5, 0.05) == "mixed"
+
+
+def test_profile_bands_and_weight_floor():
+    assert evidence.profile_band("talk") == (45, 180)
+    assert evidence.profile_band("mixed") == (30, 120)
+    assert evidence.profile_band("gameplay/action") == (15, 60)
+    assert evidence.evidence_weight(0.0, "talk") == pytest.approx(0.20)
+    assert evidence.evidence_weight(1.0, "gameplay/action") == pytest.approx(0.65)
+    assert evidence.evidence_weight(0.0, "mixed", sparse=True) == pytest.approx(0.75)
+
+
+def test_sparse_text_uses_floor_and_raised_weight():
+    got = evidence.apply_evidence(
+        candidate(0, 10, 4.2), audio=8.0, profile="mixed",
+        source_energy=0.5, words_per_second=0.4)
+    assert got["raw_score"] == pytest.approx(4.2)
+    assert got["overall"] > 7.0
+    assert got["evidence"]["weight"] == pytest.approx(0.75)
+    assert got["evidence"]["text_floor"] == 7.0
+
+
+def test_combine_evidence_shrinks_single_modality():
+    assert evidence.combine_evidence(8.0, 8.0) == pytest.approx(8.0)
+    assert evidence.combine_evidence(8.0, None) == pytest.approx(7.55)
+    assert evidence.combine_evidence(None, None) == pytest.approx(5.0)
+

@@ -376,3 +376,181 @@ def load_audio_timeline(source, workdir, identity=None):
     except OSError:
         pass
     return timeline
+
+
+# ------------------------------------------------------------- evidence math
+
+PROFILE_FLOORS = {"talk": 0.20, "mixed": 0.35, "gameplay/action": 0.60}
+PROFILE_BANDS = {"talk": (45, 180), "mixed": (30, 120),
+                 "gameplay/action": (15, 60)}
+NEUTRAL_SCORE = 5.0
+
+
+def _component(value):
+    return round(clamp(value), 3)
+
+
+def audio_evidence(timeline, start, end):
+    """Score one candidate range from the cached audio timeline."""
+    neutral = {"score": NEUTRAL_SCORE, "peak_rise": 0.0, "burst_density": 0.0,
+               "spectral_flux": 0.0, "event_arc": 0.0, "boundary_quiet": 0.0,
+               "peak_second": None}
+    if timeline is None or len(timeline.rms) == 0:
+        return neutral
+    length = len(timeline.rms)
+    low = max(0, min(length - 1, int(math.floor(float(start)))))
+    high = max(low + 1, min(length, int(math.ceil(float(end)))))
+    window = np.asarray(timeline.rms[low:high], dtype=np.float64)
+    if window.size == 0:
+        return neutral
+
+    peak_offset = int(np.argmax(window))
+    peak_index = low + peak_offset
+    peak_value = float(window[peak_offset])
+    baseline = max(float(np.median(timeline.rms)),
+                   timeline.baseline_at(peak_index))
+    peak_rise = smoothstep((peak_value - baseline) / 18.0)
+
+    burst_fraction = float(np.mean(timeline.burst[low:high])) \
+        if len(timeline.burst) else 0.0
+    burst_density = smoothstep(min(1.0, burst_fraction / 0.25))
+
+    source_flux = np.asarray(timeline.flux, dtype=np.float64)
+    if source_flux.size:
+        source_p50, source_p90 = np.percentile(source_flux, [50, 90])
+        spread = max(float(source_p90) - float(source_p50), 1e-6)
+        candidate_flux = float(np.percentile(
+            np.asarray(timeline.flux[low:high], dtype=np.float64), 90))
+        spectral = smoothstep((candidate_flux - float(source_p50)) / spread)
+    else:
+        spectral = 0.0
+
+    count = len(window)
+    rise_end = max(1, int(round(count * 0.30)))
+    middle_end = max(rise_end + 1, int(round(count * 0.70)))
+    first = float(np.mean(window[:rise_end]))
+    middle = float(np.mean(window[rise_end:middle_end]))
+    rise = smoothstep((middle - first) / 15.0)
+    peak = smoothstep((peak_value - baseline) / 18.0)
+    tail = window[peak_offset + 1:]
+    if tail.size:
+        tail_mean = float(np.mean(tail))
+        decay = smoothstep((peak_value - tail_mean) / 15.0)
+        reaction = smoothstep((tail_mean - baseline) / 12.0)
+        closure = max(decay, reaction)
+    else:
+        closure = 0.0
+    event_arc = 0.35 * rise + 0.45 * peak + 0.20 * closure
+
+    start_gap = max(0.0, peak_value - float(window[0]))
+    end_gap = max(0.0, peak_value - float(window[-1]))
+    boundary_quiet = 0.5 * (smoothstep(start_gap / 18.0)
+                            + smoothstep(end_gap / 18.0))
+
+    score = 10.0 * (0.25 * peak_rise + 0.20 * burst_density
+                    + 0.20 * spectral + 0.25 * event_arc
+                    + 0.10 * boundary_quiet)
+    return {
+        "score": round(clamp(score, 0.0, 10.0), 2),
+        "peak_rise": _component(peak_rise),
+        "burst_density": _component(burst_density),
+        "spectral_flux": _component(spectral),
+        "event_arc": _component(event_arc),
+        "boundary_quiet": _component(boundary_quiet),
+        "peak_second": float(peak_index),
+    }
+
+
+def content_profile(speech_density, visual_baseline, cut_rate_per_min,
+                    burst_rate):
+    """Internal talk/mixed/action profile from the spec thresholds."""
+    speech = max(0.0, float(speech_density or 0.0))
+    visual = 0.0 if visual_baseline is None else clamp(visual_baseline)
+    cuts = max(0.0, float(cut_rate_per_min or 0.0))
+    bursts = max(0.0, float(burst_rate or 0.0))
+    if speech >= 2.0 and visual < 0.35:
+        return "talk"
+    if speech < 1.5 and (visual >= 0.45 or cuts >= 12.0 or bursts >= 0.15):
+        return "gameplay/action"
+    return "mixed"
+
+
+def profile_band(profile):
+    return PROFILE_BANDS.get(profile, PROFILE_BANDS["mixed"])
+
+
+def source_energy(audio_variability, visual_baseline=None):
+    """Blend available source baselines; 0.5 when neither exists."""
+    audio = None if audio_variability is None else clamp(audio_variability)
+    visual = None if visual_baseline is None else clamp(visual_baseline)
+    if audio is not None and visual is not None:
+        return clamp(0.6 * audio + 0.4 * visual)
+    if audio is not None:
+        return audio
+    if visual is not None:
+        return visual
+    return 0.5
+
+
+def evidence_weight(source_energy, profile, sparse=False):
+    """Evidence influence: higher for energetic and speech-sparse sources."""
+    floor = PROFILE_FLOORS.get(profile, PROFILE_FLOORS["mixed"])
+    weight = max(0.2 + 0.45 * clamp(source_energy), floor)
+    if sparse:
+        weight = max(weight, 0.75)
+    return clamp(weight)
+
+
+def combine_evidence(audio=None, visual=None):
+    """Merge modality scores; a single modality is shrunk toward neutral."""
+    if audio is not None and visual is not None:
+        return clamp(0.6 * clamp(audio, 0.0, 10.0)
+                     + 0.4 * clamp(visual, 0.0, 10.0), 0.0, 10.0)
+    if audio is not None:
+        return clamp(5.0 + 0.85 * (clamp(audio, 0.0, 10.0) - 5.0), 0.0, 10.0)
+    if visual is not None:
+        return clamp(5.0 + 0.85 * (clamp(visual, 0.0, 10.0) - 5.0), 0.0, 10.0)
+    return 5.0
+
+
+def apply_evidence(candidate, audio=None, visual=None, profile="mixed",
+                   source_energy=0.5, words_per_second=None,
+                   action_arc=None):
+    """Attach evidence to one candidate and return an updated copy."""
+    record = dict(candidate)
+    raw_score = float(record.get("raw_score", record["overall"]))
+    sparse = words_per_second is not None and float(words_per_second) < 0.8
+    weight = evidence_weight(source_energy, profile, sparse=sparse)
+    evidence = {
+        "audio": None if audio is None else round(clamp(audio, 0, 10), 2),
+        "visual": None if visual is None else round(clamp(visual, 0, 10), 2),
+        "action_arc": None if action_arc is None else round(clamp(action_arc), 3),
+        "source_energy": round(clamp(source_energy), 3),
+        "profile": profile,
+        "weight": round(weight, 3),
+        "score": round(combine_evidence(audio, visual), 2),
+        "text_floor": 7.0 if sparse else None,
+    }
+    if audio is None and visual is None:
+        record["evidence"] = evidence
+        return record
+
+    text_score = max(raw_score, 7.0) if sparse else raw_score
+    final = clamp(text_score + (evidence["score"] - 5.0) * 0.6 * weight,
+                  0.0, 10.0)
+    record["overall"] = round(final, 2)
+    record["evidence"] = evidence
+
+    if evidence["score"] >= 7.0:
+        phrase = "strong media evidence"
+    elif evidence["score"] <= 3.5:
+        phrase = "weak media evidence"
+    else:
+        phrase = ""
+    if phrase:
+        reason = str(record.get("reason", ""))[:160]
+        if phrase not in reason:
+            record["reason"] = (reason + " | " + phrase) if reason else phrase
+            record["reason"] = record["reason"][:160]
+    return record
+
