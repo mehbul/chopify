@@ -125,8 +125,17 @@ def load_transcript(workdir):
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as e:
         raise SystemExit(f"transcript.json is not valid JSON: {e}")
-    if not data.get("words"):
+    words = data.get("words")
+    if not isinstance(words, list):
         raise SystemExit("transcript.json has no words - was the video silent?")
+    if not words:
+        duration = data.get("duration")
+        usable_media = (bool(data.get("video"))
+                        and isinstance(duration, (int, float))
+                        and not isinstance(duration, bool)
+                        and duration > 0)
+        if not usable_media:
+            raise SystemExit("transcript.json has no words - was the video silent?")
     return data
 
 
@@ -541,6 +550,93 @@ def candidate_record(index, seed, end_index, endpoint_kind="quality_best"):
         "endpoint_kind": endpoint_kind,
         "reason": score_reason(parts),
     }
+
+
+MEDIA_TEXT_FLOOR = 7.0
+
+
+def media_candidate_record(start, end, seed_kind="event",
+                           profile="gameplay/action"):
+    """Build a wordless candidate; evidence decides whether it passes."""
+    start, end = round(float(start), 2), round(float(end), 2)
+    label = "event" if seed_kind == "event" else "action"
+    return {
+        "start": start, "end": end, "duration": round(end - start, 2),
+        "hook": f"{label} at {int(start)}s", "text": "",
+        "raw_score": MEDIA_TEXT_FLOOR, "overall": MEDIA_TEXT_FLOOR,
+        "score_parts": {key: 0.0 for key in TEXT_WEIGHTS},
+        "profile": profile, "seed_index": None,
+        "seed_kind": seed_kind, "endpoint_kind": "quality_best",
+        "reason": "No words; scored on media evidence",
+    }
+
+
+def discover_media_candidates(timeline, min_len, max_len, preferred_len=None,
+                              band=(15, 60), profile="gameplay/action",
+                              source_energy=0.5, duration=None):
+    """Build event-seeded windows for a source with no transcript words.
+
+    Detected peaks become ``event`` seeds. When a varying source has no peak
+    above the burst threshold, evenly spaced ``action`` seeds are used instead.
+    Every candidate is scored from the cached audio timeline; there is no text
+    to score.
+    """
+    source_duration = float(duration or getattr(timeline, "duration", 0) or 0)
+    peaks = timeline.peak_times(min_gap=10.0) if timeline is not None else []
+    if peaks:
+        seeds = [(max(0.0, float(peak) - 2.0), "event") for peak in peaks]
+    elif timeline is None or timeline.variability < 0.02:
+        raise ValueError(
+            "No speech and no media evidence; this source cannot be scored.")
+    else:
+        step = max(30.0, float(max_len) / 2.0)
+        seeds = []
+        position = 0.0
+        while position < source_duration:
+            seeds.append((position, "grid"))
+            position += step
+
+    ladder = duration_ladder(min_len, max_len, preferred_len)
+    candidates = []
+    windows_scanned = 0
+    for seed, seed_kind in seeds:
+        choices = {}
+        for target in ladder:
+            start = timeline.trough_near(seed, radius=1.5)
+            end = timeline.trough_near(min(source_duration, seed + target),
+                                       radius=1.5)
+            if end - start < min_len - 1e-9 or end - start > max_len + 1e-9:
+                continue
+            key = (round(start, 2), round(end, 2))
+            if key in choices:
+                continue
+            windows_scanned += 1
+            record = media_candidate_record(
+                start, end, seed_kind=seed_kind, profile=profile)
+            audio = evidence.audio_evidence(timeline, record["start"],
+                                            record["end"])
+            record = evidence.apply_evidence(
+                record, audio=audio["score"], profile=profile,
+                source_energy=source_energy, words_per_second=0.0,
+                action_arc=audio["event_arc"])
+            choices[key] = record
+        if choices:
+            candidates.extend(choose_seed_endpoints(
+                list(choices.values()), preferred_len, band))
+
+    if not candidates:
+        raise ValueError(
+            "No media windows fit the requested clip length; lower the minimum "
+            "length or raise the maximum length.")
+    candidates.sort(key=lambda item: (item["start"], item["end"]))
+    stats = {
+        "seeds": len(seeds),
+        "windows_scanned": windows_scanned,
+        "source_duration": source_duration,
+        "content_profile": profile,
+        "source_energy": source_energy,
+    }
+    return candidates, stats
 
 
 def discover_candidates(sentences, min_len=15, max_len=300,
@@ -1163,18 +1259,29 @@ def discover(workdir, min_len=15, max_len=300, preferred_len=None,
     """Load the transcript, measure evidence, discover, write candidates.json."""
     workdir = Path(workdir)
     data = load_transcript(workdir)
-    sentences = sentenceize(data["words"])
+    sentences = sentenceize(data.get("words") or [])
     timeline, profile, energy, _ = source_evidence(workdir, data)
     duration = float(data.get("duration")
                      or getattr(timeline, "duration", 0) or 0)
-    print(f"Transcript: {len(sentences)} sentences over "
-          f"{duration or 0:.0f}s", flush=True)
     effective_band = (evidence.profile_band(profile)
                       if band is None else band)
-    candidates, stats = discover_candidates(
-        sentences, min_len, max_len, preferred_len=preferred_len,
-        band=effective_band, progress=progress)
-    candidates = attach_audio_evidence(candidates, timeline, profile, energy)
+    if not sentences:
+        if timeline is None:
+            raise ValueError(
+                "No speech and no media evidence; this source cannot be scored.")
+        print(f"No transcript words; scanning media events over "
+              f"{duration or timeline.duration:.0f}s", flush=True)
+        candidates, stats = discover_media_candidates(
+            timeline, min_len, max_len, preferred_len=preferred_len,
+            band=effective_band, profile=profile, source_energy=energy,
+            duration=duration or timeline.duration)
+    else:
+        print(f"Transcript: {len(sentences)} sentences over "
+              f"{duration or 0:.0f}s", flush=True)
+        candidates, stats = discover_candidates(
+            sentences, min_len, max_len, preferred_len=preferred_len,
+            band=effective_band, progress=progress)
+        candidates = attach_audio_evidence(candidates, timeline, profile, energy)
     stats.update({
         "source_duration": duration or stats.get("source_duration"),
         "content_profile": profile,

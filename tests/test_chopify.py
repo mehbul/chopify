@@ -918,3 +918,38 @@ class TestCreatorEvidence:
         sparse = [s for s in segs if s.get("evidence", {}).get("text_floor")]
         assert sparse
         assert all(s["evidence"]["weight"] >= 0.75 for s in sparse)
+
+
+# ------------------------------------------------------ action-only sources
+
+def wordless_workdir(tmp_path, source, duration=30.0):
+    wd = tmp_path / "wordless"
+    wd.mkdir()
+    data = {"video": str(source), "language": "en", "duration": duration,
+            "model": "test", "segments": [], "words": []}
+    (wd / "transcript.json").write_text(json.dumps(data), encoding="utf-8")
+    return wd
+
+
+def test_wordless_source_uses_audio_event_seeds(tmp_path, monkeypatch):
+    import evidence
+    samples = np.concatenate([
+        np.full(evidence.SAMPLE_RATE * 5, 0.001, dtype=np.float32),
+        np.full(evidence.SAMPLE_RATE, 0.8, dtype=np.float32),
+        np.full(evidence.SAMPLE_RATE * 4, 0.001, dtype=np.float32),
+    ])
+    timeline = evidence.features_from_samples(samples)
+    source = tmp_path / "silent.mp4"
+    source.write_bytes(b"x")
+    wd = wordless_workdir(tmp_path, source, 10.0)
+    monkeypatch.setattr(evidence, "load_audio_timeline", lambda *a, **k: timeline)
+    segs, _ = score_clips.run(wd, min_score=0, min_len=4, max_len=10)
+    assert segs
+    assert all(s["evidence"]["audio"] is not None for s in segs)
+    assert any("event" in s["hook"] or "action" in s["hook"] for s in segs)
+
+
+def test_wordless_flat_source_fails_clearly(tmp_path):
+    workdir = wordless_workdir(tmp_path, tmp_path / "flat.mp4", 30.0)
+    with pytest.raises(ValueError, match="No speech and no media evidence"):
+        score_clips.run(workdir, min_score=8.0)
