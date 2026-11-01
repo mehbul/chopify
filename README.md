@@ -19,7 +19,7 @@
 | **Reusable brand presets** | Save a caption look and optional logo in JSON. A named preset, brand preset, and project override layer in that order. |
 | **Semantic clip search** | Search for a concept such as “handling rejection” using optional local Ollama embeddings, even if those exact words are absent. |
 | **Podcast split-screen** | Stack two adjustable horizontal crops in a vertical clip for fixed-camera two-person footage. |
-| **Clip selection and review** | Heuristic scoring, optional local LLM scoring, keyword search, numbered selection, editable start/end times, and fast draft previews. |
+| **Clip selection and review** | Absolute 0–10 scoring returns every clip at 8.0+ by default, with an engine-chosen length, optional local LLM reranking, keyword or semantic search, editable times, and fast draft previews. |
 | **Social video exports** | 16:9, 9:16, or 1:1; H.264 video, AAC when source audio exists; SRT, poster, title/description/hashtag JSON. |
 | **Face tracking and cleanup** | Single-frame vertical crops follow a detected face; optional filler/silence removal and audio loudness normalization. |
 
@@ -82,6 +82,40 @@ CLI single-video runs save state under `work/` and copy the latest exports to `c
 
 Successful stages resume by default. Use `--no-resume` to reprocess, or `--project projects/<id> --action render` to retry a batch project. Use `--action render` after manual caption/clip edits; `--action prepare` recalculates candidates when selection inputs change. A failed batch job does not prevent later videos from processing; the CLI exits nonzero if any job fails.
 
+## How clips are chosen
+
+Chopify evaluates every sentence as a possible start, builds overlapping
+candidate windows, and keeps the best natural endpoint for each start. The
+duration is chosen by the engine from a ladder that runs from 15 seconds to five
+minutes, so a strong moment is not forced into a fixed length.
+
+- The default minimum score is **8.0 on an absolute 0–10 scale**. A clip at
+  exactly 8.0 passes and is shown as **8.0+**.
+- Every passing clip is returned by default. Use `--max-clips N` only when you
+  want a safety cap.
+- `--preferred-len` is a soft preference, not a hard cut. The engine can pick a
+  shorter or longer natural ending when it scores better.
+- The default clip range is **15–300 seconds** (`--min-len` / `--max-len`).
+- Interactive runs ask for the minimum score and preferred length once. Pass
+  `--min-score` or `--preferred-len` to skip either question, or `--no-input` to
+  skip both for scripts and CI.
+- Zero passing clips is a real result. Chopify writes an empty selection, reports
+  the candidate score range, and does not invent a fallback clip.
+
+```powershell
+# Accept only stronger clips, prefer 45-second cuts, and never prompt
+python chopify.py "recording.mp4" --min-score 8.5 --preferred-len 45s --no-input
+
+# Interactive --action all prepares first, shows the range, and confirms
+# before rendering more than ten clips.
+python chopify.py "podcast.mp4" --action all
+```
+
+`--explain` prints each candidate's score parts and reason. Prepare writes
+`candidates.json` (everything discovered) and `selection.json` (threshold and
+range diagnostics); `segments.json` stays the editable render contract used by
+the CLI and Studio.
+
 ## Semantic search and optional local AI
 
 Default clip selection needs no LLM. For semantic search, install [Ollama](https://ollama.com), run it locally, and download an embedding model:
@@ -143,4 +177,4 @@ python -m compileall -q chopify.py dashboard.py projects.py captions.py branding
 
 Tests include real ffmpeg renders when ffmpeg is installed; speech models and Ollama are not required for the automated suite. Keep videos, transcripts, generated clips, and local brand presets out of Git. Use footage you have permission to process.
 
-Maintained by [mehbul](https://github.com/mehbul). [MIT license](LICENSE). Last documentation update: **2026-10-31**.
+Maintained by [mehbul](https://github.com/mehbul). [MIT license](LICENSE). Last documentation update: **2026-11-01**.
