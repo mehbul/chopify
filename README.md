@@ -12,6 +12,7 @@
 | --- | --- |
 | **Local browser dashboard** | Queue videos, watch job progress, review candidates, edit words and timestamps, and download exports. |
 | **Local video input** | Use MP4, MOV, MKV, WebM, M4V, or AVI recordings directly, or download a yt-dlp-supported URL. |
+| **Audio-aware discovery** | A local 1 Hz audio timeline boosts reactions, laughs, impacts, and gameplay events, so speech-sparse and action-only sources can still produce clips. |
 | **Resumable projects** | Reuse matching downloads, transcripts, and completed renders. Retry a failed job without discarding successful clips. |
 | **Batch queue** | Add one source per line in Studio or use a JSON list in the CLI. Each video has an isolated project folder. |
 | **Caption Studio** | Choose from 13 caption looks, then tune font, size, colors, outline, shadow, cue length, position, box background, and word motion. A live overlay follows the source; automatic emphasis and emoji are optional. |
@@ -115,6 +116,31 @@ python chopify.py "podcast.mp4" --action all
 `candidates.json` (everything discovered) and `selection.json` (threshold and
 range diagnostics); `segments.json` stays the editable render contract used by
 the CLI and Studio.
+
+### Audio evidence and action-only sources
+
+Clip discovery also listens to the source. A single local ffmpeg pass builds a
+1 Hz audio timeline (loudness, peaks, spectral flux, and transients), caches it
+as `audio_features.npz` beside the transcript, and reuses it on later prepares.
+Only candidate ranges are scored against that timeline; no audio is uploaded.
+
+The engine derives an internal profile (`talk`, `mixed`, or `gameplay/action`)
+from speech density and audio variation. The profile changes duration tie-breaks,
+evidence weights, and evidence floors. It never changes your minimum score.
+
+- Speech-sparse clips use a 7.0 text floor and stronger audio weighting. This
+  covers gameplay, streams, and videos with little commentary.
+- A source with no transcript words uses detected audio peaks as event seeds,
+  with evenly spaced action seeds as a fallback when the track varies without a
+  sharp peak. Hooks say `event at 42s`, never a guessed semantic event.
+- A flat source with no words and no usable media evidence fails with
+  `No speech and no media evidence; this source cannot be scored.`
+- Missing or unreadable video files still fall back to transcript-only scoring,
+  so existing projects keep working.
+- Visual evidence (motion, cuts, and faces) arrives in Phase 2B. Audio-only
+  sources are fully supported now.
+
+The score is still an editing suggestion, not a prediction of virality.
 
 ## Semantic search and optional local AI
 

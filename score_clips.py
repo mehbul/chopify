@@ -30,6 +30,8 @@ import argparse
 import urllib.request
 from pathlib import Path
 
+import evidence
+
 OLLAMA_HOST = "http://localhost:11434"
 
 BASE_LADDER = (15, 30, 45, 60, 90, 120, 180, 300)
@@ -123,8 +125,17 @@ def load_transcript(workdir):
         data = json.loads(path.read_text(encoding="utf-8-sig"))
     except json.JSONDecodeError as e:
         raise SystemExit(f"transcript.json is not valid JSON: {e}")
-    if not data.get("words"):
+    words = data.get("words")
+    if not isinstance(words, list):
         raise SystemExit("transcript.json has no words - was the video silent?")
+    if not words:
+        duration = data.get("duration")
+        usable_media = (bool(data.get("video"))
+                        and isinstance(duration, (int, float))
+                        and not isinstance(duration, bool)
+                        and duration > 0)
+        if not usable_media:
+            raise SystemExit("transcript.json has no words - was the video silent?")
     return data
 
 
@@ -541,6 +552,93 @@ def candidate_record(index, seed, end_index, endpoint_kind="quality_best"):
     }
 
 
+MEDIA_TEXT_FLOOR = 7.0
+
+
+def media_candidate_record(start, end, seed_kind="event",
+                           profile="gameplay/action"):
+    """Build a wordless candidate; evidence decides whether it passes."""
+    start, end = round(float(start), 2), round(float(end), 2)
+    label = "event" if seed_kind == "event" else "action"
+    return {
+        "start": start, "end": end, "duration": round(end - start, 2),
+        "hook": f"{label} at {int(start)}s", "text": "",
+        "raw_score": MEDIA_TEXT_FLOOR, "overall": MEDIA_TEXT_FLOOR,
+        "score_parts": {key: 0.0 for key in TEXT_WEIGHTS},
+        "profile": profile, "seed_index": None,
+        "seed_kind": seed_kind, "endpoint_kind": "quality_best",
+        "reason": "No words; scored on media evidence",
+    }
+
+
+def discover_media_candidates(timeline, min_len, max_len, preferred_len=None,
+                              band=(15, 60), profile="gameplay/action",
+                              source_energy=0.5, duration=None):
+    """Build event-seeded windows for a source with no transcript words.
+
+    Detected peaks become ``event`` seeds. When a varying source has no peak
+    above the burst threshold, evenly spaced ``action`` seeds are used instead.
+    Every candidate is scored from the cached audio timeline; there is no text
+    to score.
+    """
+    source_duration = float(duration or getattr(timeline, "duration", 0) or 0)
+    peaks = timeline.peak_times(min_gap=10.0) if timeline is not None else []
+    if peaks:
+        seeds = [(max(0.0, float(peak) - 2.0), "event") for peak in peaks]
+    elif timeline is None or timeline.variability < 0.02:
+        raise ValueError(
+            "No speech and no media evidence; this source cannot be scored.")
+    else:
+        step = max(30.0, float(max_len) / 2.0)
+        seeds = []
+        position = 0.0
+        while position < source_duration:
+            seeds.append((position, "grid"))
+            position += step
+
+    ladder = duration_ladder(min_len, max_len, preferred_len)
+    candidates = []
+    windows_scanned = 0
+    for seed, seed_kind in seeds:
+        choices = {}
+        for target in ladder:
+            start = timeline.trough_near(seed, radius=1.5)
+            end = timeline.trough_near(min(source_duration, seed + target),
+                                       radius=1.5)
+            if end - start < min_len - 1e-9 or end - start > max_len + 1e-9:
+                continue
+            key = (round(start, 2), round(end, 2))
+            if key in choices:
+                continue
+            windows_scanned += 1
+            record = media_candidate_record(
+                start, end, seed_kind=seed_kind, profile=profile)
+            audio = evidence.audio_evidence(timeline, record["start"],
+                                            record["end"])
+            record = evidence.apply_evidence(
+                record, audio=audio["score"], profile=profile,
+                source_energy=source_energy, words_per_second=0.0,
+                action_arc=audio["event_arc"])
+            choices[key] = record
+        if choices:
+            candidates.extend(choose_seed_endpoints(
+                list(choices.values()), preferred_len, band))
+
+    if not candidates:
+        raise ValueError(
+            "No media windows fit the requested clip length; lower the minimum "
+            "length or raise the maximum length.")
+    candidates.sort(key=lambda item: (item["start"], item["end"]))
+    stats = {
+        "seeds": len(seeds),
+        "windows_scanned": windows_scanned,
+        "source_duration": source_duration,
+        "content_profile": profile,
+        "source_energy": source_energy,
+    }
+    return candidates, stats
+
+
 def discover_candidates(sentences, min_len=15, max_len=300,
                         preferred_len=None, band=(30, 120),
                         seed_indices=None, progress=None):
@@ -696,12 +794,15 @@ def _public_segment(item):
         "score_parts": item.get("score_parts", {}),
         "reason": str(item.get("reason", ""))[:160],
     }
+    if item.get("evidence") is not None:
+        segment["evidence"] = item["evidence"]
     return segment
 
 
 def select_candidates(candidates, min_score=8.0, max_clips=None,
                       preferred_len=None, band=(30, 120), dedupe=True,
-                      discovery=None, mode="heuristic"):
+                      discovery=None, mode="heuristic",
+                      evidence_available=None):
     """Dedupe, threshold, cap, rank, and return (segments, selection_stats)."""
     if isinstance(min_score, bool) or not isinstance(min_score, (int, float)) \
             or not math.isfinite(min_score) or not 0 <= min_score <= 10:
@@ -724,8 +825,24 @@ def select_candidates(candidates, min_score=8.0, max_clips=None,
     for rank, segment in enumerate(ranked, 1):
         segment["rank"] = rank
     public.sort(key=lambda item: (item["start"], item["end"]))
-    segments = [{key: segment[key] for key in PUBLIC_SEGMENT_KEYS}
-                for segment in public]
+    segments = []
+    for segment in public:
+        record = {key: segment[key] for key in PUBLIC_SEGMENT_KEYS}
+        if "evidence" in segment:
+            record["evidence"] = segment["evidence"]
+        segments.append(record)
+
+    if evidence_available is None:
+        evidence_available = discovery.get("evidence_available")
+    if evidence_available is None:
+        evidence_available = {
+            "audio": any((item.get("evidence") or {}).get("audio") is not None
+                         for item in candidates),
+            "visual": any((item.get("evidence") or {}).get("visual") is not None
+                          for item in candidates),
+        }
+    availability = {"audio": bool(evidence_available.get("audio")),
+                    "visual": bool(evidence_available.get("visual"))}
 
     scores = [item["overall"] for item in records]
     durations = [item["duration"] for item in records]
@@ -748,7 +865,7 @@ def select_candidates(candidates, min_score=8.0, max_clips=None,
         "analysis_floor": min(8.0, min_score),
         "content_profile": discovery.get("content_profile", "mixed"),
         "source_energy": discovery.get("source_energy", 0.5),
-        "evidence_available": {"audio": False, "visual": False},
+        "evidence_available": availability,
     }
     return segments, stats
 
@@ -774,6 +891,8 @@ def save_candidates(workdir, candidates, stats, mode="heuristic"):
         "source_duration": stats.get("source_duration"),
         "seeds": stats.get("seeds", 0),
         "windows_scanned": stats.get("windows_scanned", 0),
+        "evidence_available": stats.get(
+            "evidence_available", {"audio": False, "visual": False}),
         "candidates": list(candidates),
     }
     _write_json(Path(workdir) / "candidates.json", envelope)
@@ -792,7 +911,7 @@ def load_candidates(workdir):
         raise SystemExit("candidates.json is missing a candidate list.")
     stats = {key: data.get(key) for key in
              ("source_duration", "content_profile", "source_energy", "seeds",
-              "windows_scanned", "mode")}
+              "windows_scanned", "mode", "evidence_available")}
     return data["candidates"], stats
 
 
@@ -1065,8 +1184,11 @@ def ollama_rerank(candidates, model, host=OLLAMA_HOST, timeout=120):
         if position is None:
             continue
         record = updated[position]
-        base = record.get("raw_score", record["overall"])
-        record["overall"] = round(max(0.0, min(10.0, float(base) + adjustment)), 2)
+        base = float(record.get("overall", 0.0))
+        previous = record.get("llm_adjustment")
+        if isinstance(previous, (int, float)) and not isinstance(previous, bool):
+            base -= float(previous)
+        record["overall"] = round(max(0.0, min(10.0, base + adjustment)), 2)
         record["llm_adjustment"] = adjustment
         record["llm_model"] = model
         if reason and reason not in str(record.get("reason", "")):
@@ -1092,28 +1214,95 @@ def _nearest(values, t):
 
 # ----------------------------------------------------------------- run / cli
 
+def source_evidence(workdir, data):
+    """Measure the source profile and energy before window selection."""
+    timeline = evidence.load_audio_timeline(data.get("video"), workdir)
+    words = data.get("words") or []
+    duration = float(data.get("duration")
+                     or getattr(timeline, "duration", 0) or 0)
+    speech_density = len(words) / duration if duration else 0.0
+    variability = timeline.variability if timeline is not None else 0.0
+    burst_rate = timeline.burst_rate if timeline is not None else 0.0
+    profile = evidence.content_profile(speech_density, 0.0, 0.0, burst_rate)
+    energy = (evidence.source_energy(variability, None)
+              if timeline is not None else 0.5)
+    return timeline, profile, energy, speech_density
+
+
+def candidate_words_per_second(candidate):
+    """Words spoken per second inside this candidate's own range."""
+    duration = float(candidate["end"]) - float(candidate["start"])
+    if duration <= 0:
+        return 0.0
+    return len(str(candidate.get("text", "")).split()) / duration
+
+
+def attach_audio_evidence(candidates, timeline, profile, energy):
+    """Apply audio evidence to each candidate without changing its raw text score."""
+    updated = []
+    for candidate in candidates:
+        audio = (evidence.audio_evidence(timeline, candidate["start"],
+                                          candidate["end"])
+                 if timeline is not None else None)
+        updated.append(evidence.apply_evidence(
+            candidate,
+            audio=None if audio is None else audio["score"],
+            profile=profile,
+            source_energy=energy,
+            words_per_second=candidate_words_per_second(candidate),
+            action_arc=None if audio is None else audio["event_arc"]))
+    return updated
+
+
 def discover(workdir, min_len=15, max_len=300, preferred_len=None,
-             band=(30, 120), progress=None):
-    """Load the transcript, discover candidates, write candidates.json."""
+             band=None, progress=None):
+    """Load the transcript, measure evidence, discover, write candidates.json."""
     workdir = Path(workdir)
     data = load_transcript(workdir)
-    sentences = sentenceize(data["words"])
-    print(f"Transcript: {len(sentences)} sentences over "
-          f"{data['duration']:.0f}s", flush=True)
-    candidates, stats = discover_candidates(
-        sentences, min_len, max_len, preferred_len=preferred_len,
-        band=band, progress=progress)
+    sentences = sentenceize(data.get("words") or [])
+    timeline, profile, energy, _ = source_evidence(workdir, data)
+    duration = float(data.get("duration")
+                     or getattr(timeline, "duration", 0) or 0)
+    effective_band = (evidence.profile_band(profile)
+                      if band is None else band)
+    if not sentences:
+        if timeline is None:
+            raise ValueError(
+                "No speech and no media evidence; this source cannot be scored.")
+        print(f"No transcript words; scanning media events over "
+              f"{duration or timeline.duration:.0f}s", flush=True)
+        candidates, stats = discover_media_candidates(
+            timeline, min_len, max_len, preferred_len=preferred_len,
+            band=effective_band, profile=profile, source_energy=energy,
+            duration=duration or timeline.duration)
+    else:
+        print(f"Transcript: {len(sentences)} sentences over "
+              f"{duration or 0:.0f}s", flush=True)
+        candidates, stats = discover_candidates(
+            sentences, min_len, max_len, preferred_len=preferred_len,
+            band=effective_band, progress=progress)
+        candidates = attach_audio_evidence(candidates, timeline, profile, energy)
+    stats.update({
+        "source_duration": duration or stats.get("source_duration"),
+        "content_profile": profile,
+        "source_energy": energy,
+        "evidence_available": {"audio": timeline is not None,
+                               "visual": False},
+    })
     save_candidates(workdir, candidates, stats)
     return candidates, stats
 
 
 def select(workdir, min_score=8.0, max_clips=None, preferred_len=None,
-           band=(30, 120), llm=None, host=OLLAMA_HOST, mode="heuristic"):
+           band=None, llm=None, host=OLLAMA_HOST, mode="heuristic"):
     """Read candidates.json, write segments.json and selection.json."""
     workdir = Path(workdir)
     candidates, discovery = load_candidates(workdir)
+    effective_band = (evidence.profile_band(
+        discovery.get("content_profile", "mixed"))
+        if band is None else band)
     deduped = dedupe_candidates(candidates, preferred_len=preferred_len,
-                                band=band, min_score=min_score)
+                                band=effective_band, min_score=min_score)
     if llm:
         adjusted = ollama_rerank(deduped[:50], llm, host)
         if adjusted is not None:
@@ -1127,8 +1316,9 @@ def select(workdir, min_score=8.0, max_clips=None, preferred_len=None,
 
     segments, stats = select_candidates(
         deduped, min_score=min_score, max_clips=max_clips,
-        preferred_len=preferred_len, band=band, dedupe=False,
-        discovery=discovery, mode=mode)
+        preferred_len=preferred_len, band=effective_band, dedupe=False,
+        discovery=discovery, mode=mode,
+        evidence_available=discovery.get("evidence_available"))
     _write_json(workdir / "segments.json", segments)
     _write_json(workdir / "selection.json", stats)
     return segments, mode

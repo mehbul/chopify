@@ -260,3 +260,16 @@ def test_settings_accept_null_cap_and_preferred_length():
         "max_clips": None, "min_score": 8.0, "preferred_len": "90s"})
     assert options["max_clips"] is None
     assert options["preferred_len"] == 90
+
+
+def test_evidence_version_invalidates_discovery_cache(monkeypatch):
+    import evidence
+    import projects
+    options = projects.validate_options({})
+    data = {"words": []}
+    before = projects.score_keys("transcript", data, options)
+    monkeypatch.setattr(evidence, "EVIDENCE_VERSION",
+                        evidence.EVIDENCE_VERSION + 1)
+    after = projects.score_keys("transcript", data, options)
+    assert before[0] != after[0]
+    assert before[1] != after[1]

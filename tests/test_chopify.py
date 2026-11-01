@@ -10,6 +10,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+import numpy as np            # noqa: E402
 import score_clips          # noqa: E402
 import tighten              # noqa: E402
 import render_clips         # noqa: E402
@@ -842,3 +843,113 @@ class TestPreflight:
         assert "faster_whisper" in problems[0]
         assert "pip install" in problems[0]
 
+
+
+# ---------------------------------------------------------- creator evidence
+
+def sparse_workdir(tmp_path, words, duration=40.0):
+    wd = tmp_path / "sparse"
+    wd.mkdir()
+    data = {"video": "fake.mp4", "language": "en", "duration": duration,
+            "model": "test", "segments": [], "words": words}
+    (wd / "transcript.json").write_text(json.dumps(data), encoding="utf-8")
+    return wd
+
+
+class TestCreatorEvidence:
+    def test_discovery_attaches_audio_evidence(self, workdir, monkeypatch):
+        import evidence
+        timeline = evidence.features_from_samples(
+            np.concatenate([np.full(16000 * 4, 0.001, dtype=np.float32),
+                            np.full(16000, 0.8, dtype=np.float32)]))
+        monkeypatch.setattr(evidence, "load_audio_timeline",
+                            lambda *a, **k: timeline)
+        segs, _ = score_clips.run(workdir, min_score=0, min_len=4, max_len=20)
+        candidates = json.loads(
+            (workdir / "candidates.json").read_text())["candidates"]
+        assert all("evidence" in item for item in candidates)
+        assert any(item["evidence"]["audio"] is not None for item in candidates)
+        selection = json.loads((workdir / "selection.json").read_text())
+        assert selection["evidence_available"]["audio"] is True
+        assert selection["content_profile"] in {"mixed", "gameplay/action"}
+
+    def test_missing_source_keeps_neutral_evidence(self, workdir):
+        segs, _ = score_clips.run(workdir, min_score=0, min_len=4, max_len=20)
+        selection = json.loads((workdir / "selection.json").read_text())
+        assert selection["evidence_available"] == {"audio": False, "visual": False}
+        assert segs
+        candidates = json.loads(
+            (workdir / "candidates.json").read_text())["candidates"]
+        assert all(item["evidence"]["score"] == 5.0 for item in candidates)
+        assert all(item["overall"] == item["raw_score"] for item in candidates)
+
+    def test_ollama_rerank_uses_final_score(self, monkeypatch):
+        monkeypatch.setattr(
+            score_clips, "_ollama_chat",
+            lambda *a, **k: [{"index": 0, "adjustment": 0.3}])
+        records = [{"start": 0.0, "end": 10.0, "duration": 10.0,
+                    "overall": 7.0, "raw_score": 8.0, "text": "x"}]
+        updated = score_clips.ollama_rerank(records, "test")
+        assert updated[0]["overall"] == pytest.approx(7.3, abs=0.05)
+        assert updated[0]["raw_score"] == pytest.approx(8.0)
+
+    def test_ollama_rerank_does_not_compound(self, monkeypatch):
+        monkeypatch.setattr(
+            score_clips, "_ollama_chat",
+            lambda *a, **k: [{"index": 0, "adjustment": 0.3}])
+        records = [{"start": 0.0, "end": 10.0, "duration": 10.0,
+                    "overall": 7.3, "raw_score": 8.0, "text": "x",
+                    "llm_adjustment": 0.3}]
+        updated = score_clips.ollama_rerank(records, "test")
+        assert updated[0]["overall"] == pytest.approx(7.3, abs=0.05)
+
+    def test_sparse_windows_use_text_floor(self, tmp_path, monkeypatch):
+        import evidence
+        words = (sentence("That was insane.", 0.0)
+                 + sentence("No way, let's go.", 30.0))
+        workdir = sparse_workdir(tmp_path, words)
+        timeline = evidence.features_from_samples(
+            np.concatenate([np.full(16000 * 2, 0.01, dtype=np.float32),
+                            np.full(16000, 0.9, dtype=np.float32),
+                            np.full(16000 * 2, 0.01, dtype=np.float32)]))
+        monkeypatch.setattr(evidence, "load_audio_timeline",
+                            lambda *a, **k: timeline)
+        segs, _ = score_clips.run(workdir, min_score=0, min_len=1, max_len=40)
+        sparse = [s for s in segs if s.get("evidence", {}).get("text_floor")]
+        assert sparse
+        assert all(s["evidence"]["weight"] >= 0.75 for s in sparse)
+
+
+# ------------------------------------------------------ action-only sources
+
+def wordless_workdir(tmp_path, source, duration=30.0):
+    wd = tmp_path / "wordless"
+    wd.mkdir()
+    data = {"video": str(source), "language": "en", "duration": duration,
+            "model": "test", "segments": [], "words": []}
+    (wd / "transcript.json").write_text(json.dumps(data), encoding="utf-8")
+    return wd
+
+
+def test_wordless_source_uses_audio_event_seeds(tmp_path, monkeypatch):
+    import evidence
+    samples = np.concatenate([
+        np.full(evidence.SAMPLE_RATE * 5, 0.001, dtype=np.float32),
+        np.full(evidence.SAMPLE_RATE, 0.8, dtype=np.float32),
+        np.full(evidence.SAMPLE_RATE * 4, 0.001, dtype=np.float32),
+    ])
+    timeline = evidence.features_from_samples(samples)
+    source = tmp_path / "silent.mp4"
+    source.write_bytes(b"x")
+    wd = wordless_workdir(tmp_path, source, 10.0)
+    monkeypatch.setattr(evidence, "load_audio_timeline", lambda *a, **k: timeline)
+    segs, _ = score_clips.run(wd, min_score=0, min_len=4, max_len=10)
+    assert segs
+    assert all(s["evidence"]["audio"] is not None for s in segs)
+    assert any("event" in s["hook"] or "action" in s["hook"] for s in segs)
+
+
+def test_wordless_flat_source_fails_clearly(tmp_path):
+    workdir = wordless_workdir(tmp_path, tmp_path / "flat.mp4", 30.0)
+    with pytest.raises(ValueError, match="No speech and no media evidence"):
+        score_clips.run(workdir, min_score=8.0)

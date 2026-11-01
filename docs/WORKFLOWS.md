@@ -252,6 +252,32 @@ The score is an editing suggestion, not a prediction or guarantee of virality.
 - If nothing passes, the result is an empty clip list plus the real score range.
   Chopify never adds a fallback clip.
 
+### Audio evidence and speech-sparse sources
+
+Audio evidence runs locally. A one-time ffmpeg decode builds a 1 Hz timeline
+(loudness, peaks, spectral flux, zero-crossing rate, high-band ratio, and burst
+flags) and caches it as `audio_features.npz`. Later prepares reuse that cache;
+only candidate ranges are scored against it.
+
+The source profile is internal (`talk`, `mixed`, or `gameplay/action`). It
+adjusts the evidence weight, the duration tie-break band, and the evidence floor.
+It never changes the user-facing 8.0 default or the minimum you choose.
+
+- Speech-sparse candidates use a 7.0 text floor and at least 0.75 evidence
+  weight, so gameplay and streams with little commentary can pass on strong
+  audio events.
+- A wordless source uses audio peaks as event seeds and the 7.0 text floor.
+  Varying tracks without a sharp peak fall back to a grid of action seeds.
+  Hooks identify `event at 83s` or `action at 83s`; they never claim a semantic
+  event that was not detected.
+- A flat source with no words and no media evidence stops with
+  `No speech and no media evidence; this source cannot be scored.`
+- Missing or unreadable sources still score from text with neutral evidence.
+- Visual evidence is Phase 2B. Phase 2A is audio-only.
+
+Candidates and passing segments carry an `evidence` object. `selection.json`
+also reports `evidence_available` and the internal profile.
+
 Interactive CLI runs ask for the score and preferred length once:
 
 ```text

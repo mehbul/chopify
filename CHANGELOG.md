@@ -26,6 +26,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   output names for render variants; partial failures retain successful clips.
 - Exhaustive sentence-seeded discovery with an AI-chosen duration ladder,
   `candidates.json` / `selection.json` diagnostics, and paginated Studio review.
+- Fully local audio-evidence timeline with cached 1 Hz features, content
+  profiles, adaptive evidence weights, and a 7.0 text floor for speech-sparse
+  windows.
+- Action-only and speech-sparse clip discovery using audio event seeds, grid
+  seeds for varying tracks without peaks, and a clear failure for flat sources.
+- `evidence` fields in `candidates.json` and `segments.json`, plus
+  `evidence_available` and profile metadata in `selection.json`.
 - Guided CLI prompts for minimum score and preferred length, plus `--no-input`
   and `--explain` for scripts and review.
 - Serial batch queue with isolated folders and aggregate failure reporting.
@@ -45,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Clip length is selected from a duration ladder; `--preferred-len` is a soft
   preference rather than a fixed target.
 - Default clip range is 15-300 seconds (was 20-75).
+- Audio evidence adjusts the calibrated text score through the source profile
+  and evidence weight; content profiles never change the user-facing threshold.
 - Discovery and selection are cached separately, so changing the score
   re-filters without rescanning the transcript.
 - Matching successful stages resume by default; `--no-resume` forces processing.
@@ -58,6 +67,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Overlapping candidate windows are no longer blocked by marking covered
   sentences as taken.
 - Zero passing clips now writes an empty segment list instead of a fallback clip.
+- LLM reranking now adjusts the evidence-aware final score instead of the raw
+  text score, and no longer compounds an earlier adjustment on rerun.
 - Split-screen draft panels use even YUV420 dimensions to avoid crashes in older
   ffmpeg/libass builds; padding preserves the intended preview resolution.
 - Changed URL downloads cannot reuse an older source file.

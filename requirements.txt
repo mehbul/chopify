@@ -2,4 +2,5 @@
 yt-dlp
 faster-whisper
 opencv-python
+numpy
 # Captions are burnt in via ffmpeg's ASS engine (no extra package needed).
