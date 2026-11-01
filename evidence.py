@@ -362,6 +362,8 @@ def load_timeline(path, identity=None):
 
 def load_audio_timeline(source, workdir, identity=None):
     """Cache-backed timeline for one source; never raises on decode failure."""
+    if not source or not Path(source).is_file():
+        return None
     workdir = Path(workdir)
     path = workdir / AUDIO_CACHE
     cache_identity = identity if identity is not None else source_identity(source)
@@ -426,11 +428,16 @@ def audio_evidence(timeline, start, end):
         spectral = 0.0
 
     count = len(window)
-    rise_end = max(1, int(round(count * 0.30)))
-    middle_end = max(rise_end + 1, int(round(count * 0.70)))
-    first = float(np.mean(window[:rise_end]))
-    middle = float(np.mean(window[rise_end:middle_end]))
-    rise = smoothstep((middle - first) / 15.0)
+    if count <= 1:
+        rise = 0.0
+    else:
+        rise_end = max(1, int(round(count * 0.30)))
+        middle_end = max(rise_end + 1, int(round(count * 0.70)))
+        middle_end = min(count, middle_end)
+        first = float(np.mean(window[:rise_end]))
+        middle = (float(np.mean(window[rise_end:middle_end]))
+                  if middle_end > rise_end else float(window[-1]))
+        rise = smoothstep((middle - first) / 15.0)
     peak = smoothstep((peak_value - baseline) / 18.0)
     tail = window[peak_offset + 1:]
     if tail.size:

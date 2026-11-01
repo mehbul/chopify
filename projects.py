@@ -10,6 +10,7 @@ from pathlib import Path
 import download_and_transcribe as dt
 import render_clips
 import score_clips
+import evidence
 import branding
 from captions import update_transcript
 
@@ -103,7 +104,8 @@ def score_keys(transcript_key, data, options):
     discovery_options = {key: options[key] for key in (
         "search", "semantic", "embed_model", "min_len", "max_len",
         "preferred_len")}
-    discovery_key = digest([transcript_key, data, discovery_options])
+    discovery_key = digest([transcript_key, data, discovery_options,
+                            evidence.EVIDENCE_VERSION])
     selection_options = {key: options[key] for key in (
         "min_score", "max_clips", "llm")}
     selection_key = digest([discovery_key, selection_options])
