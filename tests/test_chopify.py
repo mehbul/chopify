@@ -718,6 +718,78 @@ class TestPrintTable:
 
 
 
+class TestCliPrompts:
+    def test_prompts_score_and_length(self, monkeypatch):
+        answers = iter(["7.5", "90s"])
+        monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+        got = chopify.prompt_scoring(
+            {"min_score": None, "preferred_len": None}, interactive=True)
+        assert got["min_score"] == 7.5
+        assert got["preferred_len"] == 90
+
+    def test_enter_keeps_existing_defaults(self, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda prompt: "")
+        got = chopify.prompt_scoring(
+            {"min_score": None, "preferred_len": None},
+            defaults={"min_score": 7.5, "preferred_len": 45},
+            interactive=True)
+        assert got["min_score"] == 7.5
+        assert got["preferred_len"] == 45
+
+    def test_non_interactive_skips_prompts(self, monkeypatch):
+        monkeypatch.setattr("builtins.input",
+                            lambda prompt: pytest.fail("prompted"))
+        got = chopify.prompt_scoring(
+            {"min_score": None, "preferred_len": None}, interactive=False)
+        assert got == {"min_score": None, "preferred_len": None}
+
+    def test_flags_skip_their_prompt(self, monkeypatch):
+        answers = iter(["90s"])
+        monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+        got = chopify.prompt_scoring(
+            {"min_score": 7.0, "preferred_len": None},
+            interactive=True, ask_score=False)
+        assert got["min_score"] == 7.0
+        assert got["preferred_len"] == 90
+
+    def test_invalid_score_reprompts(self, monkeypatch):
+        answers = iter(["11", "8.2", ""])
+        monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+        got = chopify.prompt_scoring(
+            {"min_score": None, "preferred_len": None},
+            interactive=True, ask_length=False)
+        assert got["min_score"] == 8.2
+
+
+class TestSelectionSummary:
+    def stats(self, **overrides):
+        base = {"windows_scanned": 147456, "source_duration": 2892,
+                "score_min": 4.1, "score_max": 9.2, "passing": 12,
+                "min_score": 8.0, "preferred_len": None}
+        base.update(overrides)
+        return base
+
+    def test_three_line_summary(self):
+        text = score_clips.format_selection_summary(self.stats())
+        lines = text.splitlines()
+        assert lines[0] == ("Selection: minimum score 8.0, preferred length "
+                            "AI chooses.")
+        assert lines[1] == "Scanned 147,456 windows across 48m 12s."
+        assert lines[2] == ("Candidate scores 4.1-9.2. 12 distinct clips at "
+                            "8.0 or above.")
+
+    def test_preferred_length_and_zero_clips(self):
+        text = score_clips.format_selection_summary(self.stats(
+            preferred_len=45, passing=0, score_max=6.8))
+        assert "preferred length 45s" in text
+        assert "0 distinct clips at 8.0 or above" in text
+
+    def test_duration_formats(self):
+        assert score_clips.format_duration(43.7, True) == "43.7s"
+        assert score_clips.format_duration(142) == "2m 22s"
+        assert score_clips.format_duration(3720) == "1h 02m"
+
+
 # --------------------------------------------------------- v1.3: --preview
 
 class TestPreview:

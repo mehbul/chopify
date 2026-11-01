@@ -16,6 +16,7 @@ hints - because installability is where users bail.
 """
 import re
 import sys
+import math
 import shutil
 import argparse
 import subprocess
@@ -23,6 +24,7 @@ import json
 from pathlib import Path
 
 import render_clips
+import score_clips
 
 # Python packages the pipeline needs, with a fix hint per missing module.
 IMPORT_HINTS = {
@@ -80,6 +82,94 @@ def check_environment(runner=subprocess.run):
     return problems
 
 
+def flag_given(name):
+    """True when --name or --name=value appears in sys.argv."""
+    flag = name if name.startswith("--") else "--" + name
+    return any(token == flag or token.startswith(flag + "=")
+               for token in sys.argv[1:])
+
+
+def prompt_scoring(options, defaults=None, interactive=True,
+                   ask_score=True, ask_length=True):
+    """Prompt for the two scoring controls and return a new options dict."""
+    result = dict(options)
+    if not interactive:
+        return result
+    defaults = defaults or {}
+    score_default = defaults.get("min_score")
+    if score_default is None:
+        score_default = 8.0
+    length_default = defaults.get("preferred_len")
+
+    if ask_score:
+        while True:
+            try:
+                answer = input("Minimum clip score (0-10, Enter = 8.0): ")
+            except EOFError:
+                result["min_score"] = score_default
+                break
+            text = answer.strip()
+            if not text:
+                result["min_score"] = score_default
+                break
+            try:
+                value = float(text)
+            except ValueError:
+                print("Minimum score must be a number from 0 to 10.")
+                continue
+            if not math.isfinite(value) or not 0 <= value <= 10:
+                print("Minimum score must be a number from 0 to 10.")
+                continue
+            result["min_score"] = value
+            break
+
+    if ask_length:
+        while True:
+            try:
+                answer = input("Preferred clip length (e.g. 45s, 2m; "
+                               "Enter = AI chooses): ")
+            except EOFError:
+                result["preferred_len"] = length_default
+                break
+            text = answer.strip()
+            if not text:
+                result["preferred_len"] = length_default
+                break
+            try:
+                result["preferred_len"] = score_clips.parse_duration(text)
+                break
+            except ValueError as exc:
+                print(f"Invalid preferred length: {exc}")
+    return result
+
+
+def _project_selection(path, state):
+    """Selection stats from state, falling back to selection.json."""
+    if state.get("selection"):
+        return state["selection"]
+    selection_path = Path(path) / "selection.json"
+    if selection_path.exists():
+        try:
+            return json.loads(selection_path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            pass
+    return {}
+
+
+def _print_selection(path, state, explain=False):
+    stats = _project_selection(path, state)
+    if stats:
+        print(score_clips.format_selection_summary(stats), flush=True)
+    segments_path = Path(path) / "segments.json"
+    if explain and segments_path.exists():
+        try:
+            segments = json.loads(segments_path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            segments = []
+        if segments:
+            score_clips.print_explanations(segments)
+
+
 def main():
     ap = argparse.ArgumentParser(
         prog="chopify",
@@ -109,10 +199,17 @@ def main():
                     help="render fast 480p drafts (no poster/meta) to review the "
                          "picks before the full render")
     ap.add_argument("--min-score", type=float, default=None,
-                    help="keep clips at/above this virality score")
-    ap.add_argument("--max-clips", type=int, default=10)
-    ap.add_argument("--min-len", type=int, default=20, help="min clip seconds")
-    ap.add_argument("--max-len", type=int, default=75, help="max clip seconds")
+                    help="minimum clip score 0-10 (default 8.0)")
+    ap.add_argument("--preferred-len", default=None, metavar="D",
+                    help="soft preferred length, e.g. 45s, 2m, 1m30s")
+    ap.add_argument("--max-clips", type=int, default=None,
+                    help="optional safety cap; default all passing clips")
+    ap.add_argument("--min-len", type=int, default=15, help="min clip seconds")
+    ap.add_argument("--max-len", type=int, default=300, help="max clip seconds")
+    ap.add_argument("--no-input", action="store_true",
+                    help="never prompt; use flags and defaults")
+    ap.add_argument("--explain", action="store_true",
+                    help="print score parts and reasons")
     ap.add_argument("--whisper-model", default="medium",
                     help="faster-whisper size: tiny/base/small/medium/large-v3")
     ap.add_argument("--no-preflight", action="store_true",
@@ -156,8 +253,16 @@ def main():
     import projects
     options = {k: getattr(args, k, None) for k in projects.DEFAULT_OPTIONS if k != "caption"}
     options["caption"] = caption
+    if options["min_score"] is None:
+        options["min_score"] = 8.0
     if options["brand"]:
         options["brand"] = str(Path(options["brand"]).resolve())
+    interactive = (
+        not args.no_input and not args.batch and args.action != "render"
+        and not args.search and not args.semantic and sys.stdin.isatty()
+    )
+    ask_score = not flag_given("--min-score")
+    ask_length = not flag_given("--preferred-len")
     try:
         if args.batch:
             sources = json.loads(Path(args.batch).read_text(encoding="utf-8-sig"))
@@ -168,17 +273,25 @@ def main():
                 raise SystemExit(1)
             return
         path = Path(args.project or args.workdir).resolve()
+        prompted = None
         if (path / "project.json").exists():
             state = projects.read_project(path)
             if args.url:
                 state["source"] = str(Path(args.url).resolve()) if Path(args.url).is_file() else args.url
+            prompted = prompt_scoring(
+                options, defaults=state["options"], interactive=interactive,
+                ask_score=ask_score, ask_length=ask_length)
             # Existing projects keep their settings unless a flag explicitly changes one.
             for key in options:
                 if key == "caption":
                     continue
-                flag = "--" + key.replace("_", "-")
-                if any(token == flag or token.startswith(flag + "=") for token in sys.argv[1:]):
+                if flag_given("--" + key.replace("_", "-")):
                     state["options"][key] = options[key]
+            if interactive:
+                if ask_score:
+                    state["options"]["min_score"] = prompted["min_score"]
+                if ask_length:
+                    state["options"]["preferred_len"] = prompted["preferred_len"]
             if caption is not None:
                 state["options"]["caption"] = caption
             projects.save_project(path, state)
@@ -186,9 +299,42 @@ def main():
             if not args.url:
                 ap.error("new projects require a local video or URL")
             source = str(Path(args.url).resolve()) if Path(args.url).is_file() else args.url
+            options = prompt_scoring(options, interactive=interactive,
+                                     ask_score=ask_score, ask_length=ask_length)
             projects.init_project(path, source, options)
-        result = projects.run_project(path, action=args.action, preview=args.preview,
-                                      pick=args.clips, resume=args.resume)
+
+        printed_summary = False
+        if interactive and args.action == "all":
+            result = projects.run_project(path, action="prepare", preview=args.preview,
+                                          resume=args.resume)
+            state = projects.read_project(path)
+            _print_selection(path, state, args.explain)
+            printed_summary = True
+            stats = _project_selection(path, state)
+            passing = int(stats.get("passing") or 0)
+            score = stats.get("min_score", 8.0) or 8.0
+            if passing == 0:
+                print(f"No clips reached {score:.1f}. Lower --min-score "
+                      f"(for example {max(0.0, score - 0.5):.1f}) or run "
+                      f"--action prepare to review the range.", flush=True)
+                raise SystemExit(1)
+            if passing > 10:
+                try:
+                    answer = input(f"{passing} clips at {score:.1f} or above. "
+                                   f"Render all? [Y/n] ")
+                except EOFError:
+                    answer = ""
+                if answer.strip().lower() in {"n", "no"}:
+                    print(f"Run: python chopify.py --project {path} "
+                          f"--action render")
+                    return
+            result = projects.run_project(path, action="render", preview=args.preview,
+                                          pick=args.clips, resume=args.resume)
+        else:
+            result = projects.run_project(path, action=args.action, preview=args.preview,
+                                          pick=args.clips, resume=args.resume)
+        if not printed_summary:
+            _print_selection(path, result, args.explain)
         if args.action != "prepare":
             from render_clips import default_out
             export = (Path(args.out) if args.out else default_out()).resolve()

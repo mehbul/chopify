@@ -932,6 +932,30 @@ def format_duration(seconds, compact=False):
     return f"{total // 3600}h {(total % 3600) // 60:02d}m"
 
 
+def format_selection_summary(stats):
+    """Return the three-line selection summary shown by the CLI and Studio."""
+    stats = stats or {}
+    min_score = stats.get("min_score")
+    if min_score is None:
+        min_score = 8.0
+    preferred = stats.get("preferred_len")
+    preferred_text = (format_duration(preferred) if preferred is not None
+                      else "AI chooses")
+    lines = [f"Selection: minimum score {min_score:.1f}, preferred length "
+             f"{preferred_text}."]
+    lines.append(f"Scanned {int(stats.get('windows_scanned') or 0):,} windows "
+                 f"across {format_duration(stats.get('source_duration'))}.")
+    low, high = stats.get("score_min"), stats.get("score_max")
+    passing = int(stats.get("passing") or 0)
+    if low is None or high is None:
+        lines.append(f"Candidate scores unavailable. {passing} distinct clips "
+                     f"at {min_score:.1f} or above.")
+    else:
+        lines.append(f"Candidate scores {low:.1f}-{high:.1f}. {passing} distinct "
+                     f"clips at {min_score:.1f} or above.")
+    return "\n".join(lines)
+
+
 def print_table(segments):
     """Numbered candidate table - pairs with --clips for the review workflow."""
     print("\n  #  rank  start ->      end  score  duration  hook", flush=True)
