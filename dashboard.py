@@ -21,6 +21,29 @@ HERE = Path(__file__).resolve().parent
 STATIC = HERE / "assets" / "studio"
 
 
+def project_detail(root, project_id):
+    """Build the JSON payload for one project, including selection.json."""
+    path = projects.project_path(root, project_id)
+    state = projects.read_project(path)
+    data = {"project": state, "busy": False, "candidates": [],
+            "transcript": None, "selection": {}, "files": [], "log": ""}
+    for filename, key in [("segments.json", "candidates"),
+                          ("transcript.json", "transcript"),
+                          ("selection.json", "selection")]:
+        if (path / filename).exists():
+            data[key] = projects.read_json(path / filename)
+    for directory in ("previews", "clips"):
+        for file in sorted((path / directory).glob("*")):
+            if file.suffix in {".mp4", ".srt", ".png", ".json"}:
+                data["files"].append({"name": file.name, "kind": directory,
+                                      "url": f"/media/{project_id}/{directory}/{file.name}"})
+    if (path / "job.log").exists():
+        with (path / "job.log").open("rb") as log:
+            log.seek(max(0, (path / "job.log").stat().st_size - 12000))
+            data["log"] = log.read().decode("utf-8", errors="replace")
+    return data
+
+
 class Studio:
     def __init__(self, root):
         self.root = Path(root).resolve()
@@ -170,22 +193,8 @@ class Handler(BaseHTTPRequestHandler):
             if parts == ["api", "projects"]:
                 return self.send_json({"projects": self.app.list_projects()})
             if len(parts) == 3 and parts[:2] == ["api", "projects"]:
-                path = projects.project_path(self.app.root, parts[2])
-                state = projects.read_project(path)
-                data = {"project": state, "busy": self.app.busy(parts[2]), "candidates": [], "transcript": None,
-                        "files": [], "log": ""}
-                for filename, key in [("segments.json", "candidates"), ("transcript.json", "transcript")]:
-                    if (path / filename).exists():
-                        data[key] = projects.read_json(path / filename)
-                for directory in ("previews", "clips"):
-                    for file in sorted((path / directory).glob("*")):
-                        if file.suffix in {".mp4", ".srt", ".png", ".json"}:
-                            data["files"].append({"name": file.name, "kind": directory,
-                                "url": f"/media/{parts[2]}/{directory}/{file.name}"})
-                if (path / "job.log").exists():
-                    with (path / "job.log").open("rb") as log:
-                        log.seek(max(0, (path / "job.log").stat().st_size - 12000))
-                        data["log"] = log.read().decode("utf-8", errors="replace")
+                data = project_detail(self.app.root, parts[2])
+                data["busy"] = self.app.busy(parts[2])
                 return self.send_json(data)
             if parts and parts[0] == "media" and len(parts) >= 3:
                 path = projects.project_path(self.app.root, parts[1]).resolve()

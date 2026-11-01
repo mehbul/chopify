@@ -222,3 +222,41 @@ def test_validate_segments_allows_empty_and_preserves_fields():
         "reason": "strong",
     }
     assert projects.validate_segments([rich], 10)[0] == rich
+
+
+def test_project_detail_exposes_selection(tmp_path):
+    import dashboard
+    import projects
+    projects.init_project(tmp_path / "abc123abc123", "source.mp4", {},
+                          project_id="abc123abc123")
+    (tmp_path / "abc123abc123" / "transcript.json").write_text(
+        json.dumps({"video": "source.mp4", "duration": 100.0, "words": []}),
+        encoding="utf-8")
+    (tmp_path / "abc123abc123" / "segments.json").write_text(
+        json.dumps([{"start": 1.0, "end": 40.0, "hook": "x", "overall": 8.4,
+                     "rank": 1, "duration": 39.0}]), encoding="utf-8")
+    (tmp_path / "abc123abc123" / "selection.json").write_text(
+        json.dumps({"passing": 1, "min_score": 8.0, "content_profile": "mixed"}),
+        encoding="utf-8")
+    detail = dashboard.project_detail(tmp_path, "abc123abc123")
+    assert detail["selection"]["passing"] == 1
+    assert detail["candidates"][0]["rank"] == 1
+
+
+def test_project_detail_without_selection_is_empty(tmp_path):
+    import dashboard
+    import projects
+    projects.init_project(tmp_path / "abc123abc123", "source.mp4", {},
+                          project_id="abc123abc123")
+    (tmp_path / "abc123abc123" / "transcript.json").write_text(
+        json.dumps({"video": "source.mp4", "duration": 10.0, "words": []}),
+        encoding="utf-8")
+    assert dashboard.project_detail(tmp_path, "abc123abc123")["selection"] == {}
+
+
+def test_settings_accept_null_cap_and_preferred_length():
+    import projects
+    options = projects.validate_options({
+        "max_clips": None, "min_score": 8.0, "preferred_len": "90s"})
+    assert options["max_clips"] is None
+    assert options["preferred_len"] == 90

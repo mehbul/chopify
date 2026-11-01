@@ -7,6 +7,7 @@ const state = {
   detail: null,
   words: [],
   page: 0,
+  candidatePage: 0,
   busy: false,
   tab: "clips",
   selected: new Set(),
@@ -373,6 +374,7 @@ async function refreshProjects() {
 async function selectProject(id) {
   state.id = id;
   state.page = 0;
+  state.candidatePage = 0;
   state.tab = "clips";
   state.captionDraft = null;
   state.captionKey = "";
@@ -410,6 +412,100 @@ function updateStatus(detail) {
   ))
     el.disabled = detail.busy;
 }
+const CANDIDATES_PER_PAGE = 25;
+const CONTENT_PROFILE_LABELS = {
+  talk: "podcast/talk",
+  mixed: "mixed footage",
+  "gameplay/action": "gameplay/action",
+};
+function formatDuration(seconds) {
+  const total = Number(seconds);
+  if (!Number.isFinite(total) || total <= 0) return "0s";
+  if (total < 10) return `${Math.round(total * 10) / 10}s`;
+  if (total < 60) return `${Math.round(total * 10) / 10}s`;
+  const whole = Math.round(total);
+  const hours = Math.floor(whole / 3600);
+  const minutes = Math.floor((whole % 3600) / 60);
+  const remainder = whole % 60;
+  if (hours)
+    return `${hours}h ${String(minutes).padStart(2, "0")}m`;
+  return `${minutes}m ${String(remainder).padStart(2, "0")}s`;
+}
+function renderSelectionSummary(detail) {
+  const box = $("#selection-summary");
+  const selection = detail.selection || {};
+  const candidates = detail.candidates || [];
+  const scores = candidates
+    .map((item) => Number(item.overall))
+    .filter(Number.isFinite);
+  const minScore = Number(
+    selection.min_score ?? detail.project.options.min_score ?? 8,
+  );
+  const passing = Number.isFinite(Number(selection.passing))
+    ? Number(selection.passing)
+    : scores.filter((score) => score >= minScore).length;
+  const scoreLow = Number.isFinite(Number(selection.score_min))
+    ? Number(selection.score_min)
+    : scores.length
+      ? Math.min(...scores)
+      : null;
+  const scoreHigh = Number.isFinite(Number(selection.score_max))
+    ? Number(selection.score_max)
+    : scores.length
+      ? Math.max(...scores)
+      : null;
+  const passingScores = scores.filter((score) => score >= minScore);
+  const passLow = Number.isFinite(Number(selection.passing_score_min))
+    ? Number(selection.passing_score_min)
+    : passingScores.length
+      ? Math.min(...passingScores)
+      : null;
+  const passHigh = Number.isFinite(Number(selection.passing_score_max))
+    ? Number(selection.passing_score_max)
+    : passingScores.length
+      ? Math.max(...passingScores)
+      : null;
+  const durations = candidates
+    .map((item) => Number(item.duration ?? item.end - item.start))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  const durationLow = Number.isFinite(Number(selection.duration_min))
+    ? Number(selection.duration_min)
+    : durations.length
+      ? Math.min(...durations)
+      : null;
+  const durationHigh = Number.isFinite(Number(selection.duration_max))
+    ? Number(selection.duration_max)
+    : durations.length
+      ? Math.max(...durations)
+      : null;
+  const lines = [];
+  if (!passing) {
+    lines.push(
+      scoreLow === null || scoreHigh === null
+        ? "No scored candidates yet."
+        : `Candidate scores ${scoreLow.toFixed(1)}-${scoreHigh.toFixed(1)}.`,
+    );
+    lines.push(
+      `No clips at ${minScore.toFixed(1)}+. Lower the minimum score to review more.`,
+    );
+  } else {
+    const range =
+      passLow === null || passHigh === null
+        ? ""
+        : ` · passing scores ${passLow.toFixed(1)}-${passHigh.toFixed(1)}`;
+    const length =
+      durationLow === null || durationHigh === null
+        ? ""
+        : ` · ${formatDuration(durationLow)}-${formatDuration(durationHigh)}`;
+    lines.push(`${passing} clips at ${minScore.toFixed(1)}+${range}${length}`);
+    const profile =
+      CONTENT_PROFILE_LABELS[selection.content_profile] ||
+      selection.content_profile;
+    if (profile) lines.push(`Footage: ${profile}`);
+  }
+  box.textContent = lines.join("\n");
+  box.hidden = false;
+}
 function renderDetail() {
   const detail = state.detail,
     p = detail.project,
@@ -446,14 +542,26 @@ function renderDetail() {
   fillCaptionForm(savedCaptionStyle(), options.style);
   markCaptionPreset(options.style);
   $("#candidate-count").textContent = detail.candidates.length;
-  $("#candidates").innerHTML = detail.candidates.length
-    ? detail.candidates
-        .map(
-          (c, i) =>
-            `<article class="candidate" data-index="${i}"><input type="checkbox" aria-label="Select clip ${i + 1}" data-select="${i + 1}" ${state.selected.has(i + 1) ? "checked" : ""}><div><div class="candidate-title"><input aria-label="Clip ${i + 1} title" data-field="hook" value="${escapeHTML(c.hook)}"></div><div class="candidate-meta">CLIP ${String(i + 1).padStart(2, "0")} · SCORE ${Number(c.overall).toFixed(1)}/10${c.similarity !== undefined ? " · SEMANTIC " + Number(c.similarity).toFixed(2) : ""}</div><div class="candidate-time"><label>Start (seconds)<input data-field="start" type="number" min="0" step="0.01" value="${c.start}"></label><label>End (seconds)<input data-field="end" type="number" min="0" step="0.01" value="${c.end}"></label></div></div><button data-play="${i}">▶ Watch</button></article>`,
-        )
+  const total = detail.candidates.length;
+  const pageCount = Math.max(1, Math.ceil(total / CANDIDATES_PER_PAGE));
+  state.candidatePage = Math.min(Math.max(0, state.candidatePage), pageCount - 1);
+  const start = state.candidatePage * CANDIDATES_PER_PAGE;
+  const visible = detail.candidates.slice(start, start + CANDIDATES_PER_PAGE);
+  $("#candidates").innerHTML = visible.length
+    ? visible
+        .map((c, offset) => {
+          const i = start + offset;
+          const rank = Number.isFinite(Number(c.rank)) ? Number(c.rank) : i + 1;
+          const duration = Number(c.duration ?? c.end - c.start);
+          return `<article class="candidate" data-index="${i}"><input type="checkbox" aria-label="Select clip ${i + 1}" data-select="${i + 1}" ${state.selected.has(i + 1) ? "checked" : ""}><div><div class="candidate-title"><input aria-label="Clip ${i + 1} title" data-field="hook" value="${escapeHTML(c.hook)}"></div><div class="candidate-meta">#${rank} · ${Number(c.overall).toFixed(1)}/10 · ${formatDuration(duration)}${c.similarity !== undefined ? " · SEMANTIC " + Number(c.similarity).toFixed(2) : ""}</div><div class="candidate-time"><label>Start (seconds)<input data-field="start" type="number" min="0" step="0.01" value="${c.start}"></label><label>End (seconds)<input data-field="end" type="number" min="0" step="0.01" value="${c.end}"></label></div><details class="candidate-reason"><summary>Why this clip</summary><p>${escapeHTML(c.reason || "")}</p><pre>${escapeHTML(JSON.stringify(c.score_parts || {}, null, 2))}</pre>${c.evidence ? `<pre>${escapeHTML(JSON.stringify(c.evidence, null, 2))}</pre>` : ""}</details></div><button data-play="${i}">▶ Watch</button></article>`;
+        })
         .join("")
     : '<p class="muted">Find clips to see candidates here. You can adjust selection and timing before export.</p>';
+  $("#candidate-page").textContent =
+    `${total ? start + 1 : 0}–${Math.min(start + CANDIDATES_PER_PAGE, total)} of ${total}`;
+  $("#candidates-prev").disabled = state.candidatePage === 0;
+  $("#candidates-next").disabled = start + CANDIDATES_PER_PAGE >= total;
+  renderSelectionSummary(detail);
   renderWords();
   updateSelection();
   renderOutputs(detail);
@@ -599,10 +707,12 @@ $("#settings-form").addEventListener(
     event.preventDefault();
     const form = event.target,
       values = Object.fromEntries(new FormData(form));
-    for (const key of ["min_len", "max_len", "max_clips"])
-      values[key] = Number(values[key]);
+    for (const key of ["min_len", "max_len"]) values[key] = Number(values[key]);
+    values.max_clips =
+      values.max_clips === "" ? null : Number(values.max_clips);
     values.min_score =
       values.min_score === "" ? null : Number(values.min_score);
+    values.preferred_len = (values.preferred_len || "").trim() || null;
     values.tighten = form.elements.tighten.checked;
     values.loudnorm = form.elements.loudnorm.checked;
     values.centers = [Number(values.center1), Number(values.center2)];
@@ -711,6 +821,22 @@ $("#words-next").addEventListener("click", () => {
   state.page++;
   renderWords();
 });
+$("#candidates-prev").addEventListener("click", () => {
+  state.candidatePage = Math.max(0, state.candidatePage - 1);
+  renderDetail();
+});
+$("#candidates-next").addEventListener("click", () => {
+  state.candidatePage++;
+  renderDetail();
+});
+$("#select-all").addEventListener("click", () => {
+  state.selected = new Set(state.detail.candidates.map((_, i) => i + 1));
+  renderDetail();
+});
+$("#select-none").addEventListener("click", () => {
+  state.selected.clear();
+  renderDetail();
+});
 $("#show-clips").addEventListener("click", () => setTab("clips"));
 $("#show-transcript").addEventListener("click", () => setTab("transcript"));
 $("#show-captions").addEventListener("click", () => setTab("captions"));
@@ -801,6 +927,7 @@ setInterval(async () => {
         state.detail = detail;
         state.words = structuredClone(detail.transcript?.words || []);
         state.selected = new Set(detail.candidates.map((_, i) => i + 1));
+        state.candidatePage = 0;
         renderDetail();
         notice(
           detail.project.error || "Project ready for review.",

@@ -498,6 +498,56 @@ input[type="checkbox"] {
   font-size: 10px;
   padding: 6px 9px;
 }
+.selection-summary {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+.candidate-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font: 10px Consolas, monospace;
+}
+.candidate-pager button {
+  font-size: 10px;
+  padding: 6px 9px;
+}
+.candidate-pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.candidate-reason {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.candidate-reason summary {
+  cursor: pointer;
+  color: var(--accent);
+}
+.candidate-reason p {
+  margin: 8px 0;
+}
+.candidate-reason pre {
+  margin: 8px 0 0;
+  padding: 10px;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  font: 10px/1.5 Consolas, monospace;
+  white-space: pre-wrap;
+}
 .export-bar {
   display: flex;
   align-items: center;
