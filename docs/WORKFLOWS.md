@@ -7,9 +7,14 @@ clips. All transcription, scoring, editing, and rendering run on your computer.
 
 1. Run `python dashboard.py` and open the printed `127.0.0.1` address.
 2. Enter an absolute local video path or URL. Add one source per line for a batch.
-3. Choose aspect ratio, speech model, and starting caption style. Click **Find clips**.
+3. Choose aspect ratio, speech model, and starting caption style. In
+   **Transcription & scoring**, set the minimum score (default 8.0) and an
+   optional preferred length. Click **Find clips**.
 4. Watch stage progress in the project list and open **Job log** for details.
-5. Click **Watch** beside a candidate to play that range in the source video.
+5. Read the selection summary above the candidates. Use **Previous** / **Next**
+   to page through 25 cards at a time, and **Select all** / **Select none** to
+   change the export set quickly. Click **Watch** beside a candidate to play that
+   range in the source video.
 6. Change titles, start/end times, and selected checkboxes. Save clip edits.
 7. Open **Captions**, choose a look, tune it, and **Save caption style**. Use
    **Preview 5s** to check motion over a selected range.
@@ -59,7 +64,8 @@ enabled by default; `--no-resume` redoes the chosen action.
 | Source path/URL, local file size or modification timestamp | Source resolution, transcription, candidates, renders |
 | Speech model or compute device | Transcription and downstream stages |
 | Caption words/times | Candidate selection on next prepare; rendered captions on export |
-| Keyword/semantic query, embedding model, scoring settings | Candidates and renders |
+| Keyword/semantic query, embedding model, length range, preferred length | Discovery and selection |
+| Minimum score, maximum clip cap | Selection only; discovery is reused |
 | Style, brand, logo, layout, caption look, tightening, normalization | Renders |
 | Selected clip subset | Only requested clips are rendered |
 
@@ -213,6 +219,70 @@ validated before rendering.
 python chopify.py recording.mp4 --brand examples/brand.json --aspect 9:16
 ```
 
+## How clip discovery and scoring work
+
+Discovery is exhaustive rather than greedy. Every sentence is treated as a
+possible start, and the engine evaluates a duration ladder of 15s, 30s, 45s,
+60s, 90s, 2m, 3m, and 5m (plus your preferred length). Endpoints snap to a
+complete sentence, then refine by up to two sentences around the best result.
+Each start keeps at most two records: its highest-quality endpoint and its
+best endpoint near your preferred length. Candidates may overlap; deduplication
+removes a lower-scoring window when it overlaps more than 55% of the shorter
+clip, and a tighter clip can replace a loose one when the scores are within 0.25.
+
+Scores are absolute 0–10 values, not a ranking normalized to the current video.
+The rubric weighs hook, payoff, self-containment, story arc, energy,
+quotability, emotion, controversy, and humour, then subtracts penalties for
+padding and weak endings. The raw weighted score is calibrated with:
+
+```text
+text_score = 10 * clamp(1.35 * raw_score - 0.08, 0, 1)
+```
+
+The score is an editing suggestion, not a prediction or guarantee of virality.
+
+- The default minimum is **8.0 inclusive**. A clip at exactly 8.0 passes and is
+  displayed as **8.0+**.
+- Every passing clip is returned. `--max-clips` is an optional safety cap, not a
+  default limit.
+- `--preferred-len` is a soft prior. The engine may choose another length when
+  that endpoint scores better.
+- The default range is 15–300 seconds. Widen `--min-len` / `--max-len` for
+  longer-form material.
+- If nothing passes, the result is an empty clip list plus the real score range.
+  Chopify never adds a fallback clip.
+
+Interactive CLI runs ask for the score and preferred length once:
+
+```text
+Minimum clip score (0-10, Enter = 8.0):
+Preferred clip length (e.g. 45s, 2m; Enter = AI chooses):
+```
+
+`--min-score` and `--preferred-len` skip their questions. `--no-input` skips
+both. Interactive `--action all` prepares first, prints the selection summary,
+and asks before rendering more than ten clips. Answering no leaves the project
+in review; render later with `--action render`. Batch mode never prompts.
+
+```powershell
+python chopify.py recording.mp4 --action prepare --no-input
+python chopify.py --project work --action render --clips 1,3 --preview --no-input
+```
+
+Preparing writes three artifacts:
+
+| File | Role |
+| --- | --- |
+| `candidates.json` | Every deduplicated candidate, independent of the threshold. |
+| `selection.json` | The threshold, score range, counts, durations, and profile metadata. |
+| `segments.json` | The passing clips, editable in Studio and consumed by the renderer. |
+
+Changing only the minimum score re-filters `candidates.json` without rescanning
+the transcript. Changing discovery inputs (length range, preferred length,
+search settings) runs discovery again. In Studio, the summary shows the passing
+count, score range, and duration range; candidates are paginated 25 per page and
+all passing clips start selected.
+
 ## Find clips by meaning
 
 Install and start Ollama, then download an embedding model:
@@ -256,7 +326,9 @@ projects/
   <id>/
     project.json       # source, settings, stage status, cache records
     transcript.json    # word timestamps, sentences, source path
-    segments.json      # editable clip candidates
+    candidates.json    # every deduplicated candidate before thresholding
+    selection.json     # threshold, score range, counts, durations
+    segments.json      # editable clip candidates (the render contract)
     embeddings.json    # optional semantic-search cache
     job.log            # dashboard job output
     source.mp4         # downloaded footage; local files stay in place

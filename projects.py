@@ -15,7 +15,8 @@ from captions import update_transcript
 
 DEFAULT_OPTIONS = {"aspect": "16:9", "style": "default", "tighten": False,
                    "loudnorm": False, "whisper_model": "medium", "device": "cpu",
-                   "min_len": 20, "max_len": 75, "max_clips": 10, "min_score": None,
+                   "min_len": 15, "max_len": 300, "max_clips": None,
+                   "min_score": 8.0, "preferred_len": None,
                    "llm": None, "search": None, "semantic": None,
                    "embed_model": "nomic-embed-text", "brand": None,
                    "layout": "single", "centers": [0.25, 0.75], "caption": None}
@@ -53,14 +54,25 @@ def validate_options(options):
         raise ValueError("Layout must be single or split.")
     if result["layout"] == "split" and result["aspect"] != "9:16":
         raise ValueError("Podcast split-screen requires aspect 9:16.")
-    for key in ("min_len", "max_len", "max_clips"):
+    for key in ("min_len", "max_len"):
         if isinstance(result[key], bool) or not isinstance(result[key], int) or not 1 <= result[key] <= 3600:
             raise ValueError(f"{key} must be an integer from 1 to 3600.")
     if result["min_len"] > result["max_len"]:
         raise ValueError("Minimum clip length cannot exceed maximum clip length.")
+    if result["max_clips"] is not None and (
+            isinstance(result["max_clips"], bool) or not isinstance(result["max_clips"], int)
+            or not 1 <= result["max_clips"] <= 3600):
+        raise ValueError("max_clips must be an integer from 1 to 3600 or null.")
     if result["min_score"] is not None and (not isinstance(result["min_score"], (int, float))
             or not math.isfinite(result["min_score"]) or not 0 <= result["min_score"] <= 10):
         raise ValueError("Minimum score must be between 0 and 10.")
+    if result["preferred_len"] is not None:
+        try:
+            preferred = score_clips.parse_duration(result["preferred_len"])
+        except ValueError as exc:
+            raise ValueError(f"preferred_len is invalid. {exc}") from exc
+        preferred = float(max(result["min_len"], min(result["max_len"], preferred)))
+        result["preferred_len"] = int(preferred) if preferred.is_integer() else preferred
     if result["device"] not in {"cpu", "cuda", "auto"}:
         raise ValueError("Device must be cpu, cuda or auto.")
     if result["search"] and result["semantic"]:
@@ -78,6 +90,24 @@ def validate_options(options):
     if result["caption"] is not None:
         result["caption"] = branding.validate_caption(result["caption"])
     return result
+
+
+def score_options(options):
+    keys = ("llm", "search", "semantic", "embed_model", "min_score",
+            "max_clips", "min_len", "max_len", "preferred_len")
+    return {key: options[key] for key in keys}
+
+
+def score_keys(transcript_key, data, options):
+    """Return (discovery_key, selection_key) for split stage caching."""
+    discovery_options = {key: options[key] for key in (
+        "search", "semantic", "embed_model", "min_len", "max_len",
+        "preferred_len")}
+    discovery_key = digest([transcript_key, data, discovery_options])
+    selection_options = {key: options[key] for key in (
+        "min_score", "max_clips", "llm")}
+    selection_key = digest([discovery_key, selection_options])
+    return discovery_key, selection_key
 
 
 def project_path(root, project_id):
@@ -129,18 +159,24 @@ def edit_transcript(path, words):
 
 
 def validate_segments(segments, duration):
-    if not isinstance(segments, list) or not segments:
-        raise ValueError("Select at least one clip.")
+    if not isinstance(segments, list):
+        raise ValueError("Candidates must be a list.")
+    if not segments:
+        return []
     result = []
     for item in segments:
+        if not isinstance(item, dict):
+            raise ValueError("Each clip must be an object.")
         start, end = float(item["start"]), float(item["end"])
         score = float(item.get("overall", 0))
         if not math.isfinite(start) or not math.isfinite(end) or not 0 <= start < end <= duration:
             raise ValueError("Clip times must be inside the source video.")
         if not math.isfinite(score) or not 0 <= score <= 10:
             raise ValueError("Clip score must be between 0 and 10.")
-        result.append({"start": start, "end": end, "hook": str(item.get("hook", "clip"))[:200],
-                       "overall": score})
+        record = dict(item)
+        record.update(start=start, end=end,
+                      hook=str(item.get("hook", "clip"))[:200], overall=score)
+        result.append(record)
     return result
 
 
@@ -179,15 +215,40 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
                 state["cache"]["transcript"] = transcript_key
                 state["source_identity"] = file_identity(source)
                 save_project(path, state)
-            stage("score")
+            stage("discover")
             data = read_json(transcript_path)
-            selection = {k: options[k] for k in ("llm", "search", "semantic", "embed_model",
-                                                "min_score", "min_len", "max_len", "max_clips")}
-            score_key = digest([transcript_key, data, selection])
-            if not resume or state["cache"].get("score") != score_key or not (path / "segments.json").exists():
-                score_clips.run(path, **selection)
-                state["cache"]["score"] = score_key
-                save_project(path, state)
+            discovery_key, selection_key = score_keys(transcript_key, data, options)
+            candidates_path = path / "candidates.json"
+            selection_path = path / "selection.json"
+            segments_path = path / "segments.json"
+            if options["search"] or options["semantic"]:
+                combined_key = digest([discovery_key, selection_key])
+                if (not resume or state["cache"].get("score") != combined_key
+                        or not segments_path.exists()):
+                    score_clips.run(path, **score_options(options))
+                    state["cache"]["score"] = combined_key
+                    save_project(path, state)
+            else:
+                if (not resume or state["cache"].get("discovery") != discovery_key
+                        or not candidates_path.exists()):
+                    score_clips.discover(
+                        path, min_len=options["min_len"], max_len=options["max_len"],
+                        preferred_len=options["preferred_len"])
+                    state["cache"]["discovery"] = discovery_key
+                    save_project(path, state)
+
+                stage("select")
+                if (not resume or state["cache"].get("selection") != selection_key
+                        or not segments_path.exists() or not selection_path.exists()):
+                    score_clips.select(
+                        path,
+                        min_score=options["min_score"] if options["min_score"] is not None else 8.0,
+                        max_clips=options["max_clips"],
+                        preferred_len=options["preferred_len"], llm=options["llm"])
+                    state["cache"]["selection"] = selection_key
+                    save_project(path, state)
+
+            state["selection"] = read_json(selection_path)
         if action == "prepare":
             state.update(status="review", stage="ready for review")
         else:
@@ -197,6 +258,16 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
             if state.get("source_identity") and state["source_identity"] != file_identity(source):
                 raise ValueError("Source video changed since transcription. Find clips again before rendering.")
             segments = validate_segments(read_json(path / "segments.json"), data["duration"])
+            if not segments:
+                stats = state.get("selection") or {}
+                low = stats.get("score_min")
+                high = stats.get("score_max")
+                score = stats.get("min_score", options["min_score"] or 8.0)
+                range_text = (f"Candidate scores {low:.1f}-{high:.1f}. "
+                              if low is not None else "No candidates were found. ")
+                raise ValueError(f"{range_text}No clips reached {score:.1f}. "
+                                 f"Lower the minimum score or run this project with "
+                                 f"--action prepare to review the range.")
             # Assign stable IDs before subset selection so names do not shift.
             segments = [{**s, "id": f"{i:03}"} for i, s in enumerate(segments, 1)]
             segments = score_clips.pick_segments(segments, pick)

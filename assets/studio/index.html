@@ -162,9 +162,17 @@
               <button id="prepare">Find / refresh clips</button>
             </div>
             <div id="clip-panel">
+              <div id="selection-summary" class="selection-summary" hidden></div>
               <div id="candidates" class="candidate-list"></div>
+              <div class="candidate-pager">
+                <button id="candidates-prev" type="button">← Previous</button>
+                <span id="candidate-page">0–0 of 0</span>
+                <button id="candidates-next" type="button">Next →</button>
+              </div>
               <div class="export-bar">
                 <span id="selection-count">0 selected</span
+                ><button id="select-all" type="button">Select all</button
+                ><button id="select-none" type="button">Select none</button
                 ><button id="save-candidates">Save clip edits</button
                 ><button id="preview">Preview selected</button
                 ><button id="render" class="primary">Export selected ↗</button>
@@ -286,6 +294,7 @@
                     type="number"
                     min="1"
                     max="3600"
+                    value="15"
                     required /></label
                 ><label
                   >Max seconds<input
@@ -293,16 +302,17 @@
                     type="number"
                     min="1"
                     max="3600"
+                    value="300"
                     required
                 /></label>
               </div>
               <label
-                >Maximum clips<input
+                >Maximum clips (optional)<input
                   name="max_clips"
                   type="number"
                   min="1"
                   max="3600"
-                  required
+                  placeholder="All passing clips"
               /></label>
               <label
                 >Find specific moments<select id="search-mode">
@@ -348,12 +358,19 @@
                     name="llm"
                     placeholder="qwen2.5:7b" /></label
                 ><label
-                  >Minimum score (optional)<input
+                  >Minimum score<input
                     name="min_score"
                     type="number"
                     min="0"
                     max="10"
                     step="0.1"
+                    value="8"
+                    required /></label
+                ><label
+                  >Preferred length<input
+                    name="preferred_len"
+                    placeholder="AI chooses"
+                    autocomplete="off"
                 /></label>
               </details>
               <label class="check"

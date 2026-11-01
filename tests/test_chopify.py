@@ -66,6 +66,87 @@ class TestSentenceize:
         assert total == len(sample_words)
 
 
+class TestCalibration:
+    def test_calibration_anchors(self):
+        anchors = {0.30: 3.3, 0.40: 4.6, 0.50: 6.0, 0.58: 7.0,
+                   0.65: 8.0, 0.70: 8.7, 0.75: 9.3, 0.80: 10.0}
+        for raw, expected in anchors.items():
+            assert score_clips.calibrate_text(raw) == pytest.approx(expected, abs=0.06)
+
+    def test_calibration_clamps(self):
+        assert score_clips.calibrate_text(-1) == 0.0
+        assert score_clips.calibrate_text(2) == 10.0
+
+    def test_strong_window_reaches_eight(self):
+        words = (sentence("Here is the thing nobody tells you about losing everything.", 0.0)
+                 + sentence("I was broke and terrified, then I found one insane secret.", 8.0)
+                 + sentence("It changed my life forever, and it will change yours.", 16.0))
+        sents = score_clips.sentenceize(words)
+        parts, text_score, raw_score = score_clips.score_window(sents, 0, len(sents) - 1)
+        assert text_score >= 8.0
+        assert raw_score >= 0.64
+        assert set(score_clips.TEXT_WEIGHTS) <= set(parts)
+
+    def test_flat_narration_stays_below_six(self):
+        words = (sentence("Today we are going to talk about the general topic.", 0.0)
+                 + sentence("There are many things that people consider in this area.", 8.0)
+                 + sentence("That is all for this section of the discussion.", 16.0))
+        sents = score_clips.sentenceize(words)
+        _, text_score, _ = score_clips.score_window(sents, 0, len(sents) - 1)
+        assert text_score < 6.0
+
+    def test_meta_outro_and_filler_lower_the_score(self):
+        words = (sentence("The biggest mistake is waiting until you feel ready.", 0.0)
+                 + sentence("You have to start scared and learn from the wreckage.", 8.0))
+        sents = score_clips.sentenceize(words)
+        _, clean, _ = score_clips.score_window(sents, 0, len(sents) - 1)
+        polluted_words = sents[0]["words"] + sents[1]["words"] + sentence(
+            "Um, thanks for watching and subscribe to the channel.", 16.0)
+        polluted = score_clips.sentenceize(polluted_words)
+        _, noisy, _ = score_clips.score_window(polluted, 0, len(polluted) - 1)
+        assert clean - noisy >= 0.5
+
+    def test_score_sentence_keeps_old_contract(self, sample_words):
+        sents = score_clips.sentenceize(sample_words)
+        for s in sents:
+            scores, overall = score_clips.score_sentence(s)
+            assert set(scores) == set(score_clips.TEXT_WEIGHTS)
+            assert 0.0 <= overall <= 10.0
+
+
+class TestDurationParser:
+    @pytest.mark.parametrize("value,expected", [
+        (45, 45.0), ("45", 45.0), ("45s", 45.0), ("2m", 120.0),
+        ("1.5m", 90.0), ("1m30s", 90.0), ("1h", 3600.0),
+    ])
+    def test_accepts_supported_formats(self, value, expected):
+        assert score_clips.parse_duration(value) == pytest.approx(expected)
+
+    @pytest.mark.parametrize("value", [True, False, 0, -5, "0", "-2s", "",
+                                        "abc", "1x", "4000s", None])
+    def test_rejects_invalid_formats(self, value):
+        with pytest.raises(ValueError):
+            score_clips.parse_duration(value)
+
+    def test_error_mentions_an_example(self):
+        with pytest.raises(ValueError, match="45s"):
+            score_clips.parse_duration("nope")
+
+
+class TestDurationLadder:
+    def test_default_ladder(self):
+        assert score_clips.duration_ladder(15, 300) == [
+            15, 30, 45, 60, 90, 120, 180, 300]
+
+    def test_preferred_value_is_inserted_and_clipped(self):
+        assert 52 in score_clips.duration_ladder(15, 300, 52)
+        assert max(score_clips.duration_ladder(15, 300, 900)) == 300
+        assert min(score_clips.duration_ladder(15, 300, 1)) == 15
+
+    def test_narrow_range_still_has_endpoints(self):
+        assert score_clips.duration_ladder(40, 100) == [40, 45, 60, 90, 100]
+
+
 class TestScoring:
     def test_hook_sentence_scores_higher(self, sample_words):
         sents = score_clips.sentenceize(sample_words)
@@ -111,11 +192,259 @@ class TestCandidates:
             assert s["hook"]
             assert 0 <= s["overall"] <= 10
 
-    def test_candidates_non_overlapping(self, sample_words):
+    def test_candidates_overlap_no_more_than_55_percent(self, sample_words):
         sents = score_clips.sentenceize(sample_words)
         segs = score_clips.build_candidates(sents, min_len=5, max_len=30, max_clips=10)
-        for a, b in zip(segs, segs[1:]):
-            assert a["end"] <= b["start"] + 0.01
+        for i, a in enumerate(segs):
+            for b in segs[i + 1:]:
+                assert score_clips.overlap_ratio(a, b) <= 0.55
+
+
+def numbered_sentences(count=8, step=5.0):
+    words = []
+    for i in range(count):
+        text = (f"Sentence number {i} is a complete thought about the topic."
+                if i % 2 == 0 else
+                f"Here is the insane secret number {i}, and it changed everything.")
+        words += sentence(text, i * step)
+    return score_clips.sentenceize(words)
+
+
+class TestDiscovery:
+    def test_every_sentence_is_a_seed(self):
+        sents = numbered_sentences()
+        candidates, stats = score_clips.discover_candidates(
+            sents, min_len=2, max_len=30)
+        assert {c["seed_index"] for c in candidates} == set(range(len(sents)))
+        assert stats["seeds"] == len(sents)
+        assert stats["windows_scanned"] == len(sents) * len(
+            score_clips.duration_ladder(2, 30))
+
+    def test_overlapping_start_is_not_marked_taken(self):
+        sents = numbered_sentences()
+        candidates, _ = score_clips.discover_candidates(
+            sents, min_len=5, max_len=30)
+        starts = {c["start"] for c in candidates}
+        assert sents[2]["start"] in starts
+        assert any(c["start"] == sents[2]["start"] and c["end"] >= sents[4]["end"]
+                   for c in candidates)
+
+    def test_seed_indices_restrict_starts(self):
+        sents = numbered_sentences()
+        candidates, _ = score_clips.discover_candidates(
+            sents, min_len=5, max_len=30, seed_indices=[1, 3])
+        assert {c["seed_index"] for c in candidates} == {1, 3}
+
+    def test_records_end_on_complete_sentences(self):
+        sents = numbered_sentences()
+        candidates, _ = score_clips.discover_candidates(
+            sents, min_len=5, max_len=30)
+        ends = {s["end"] for s in sents}
+        assert all(c["end"] in ends for c in candidates)
+        assert all(score_clips.is_arc_complete(s["text"])
+                   for s in sents if s["end"] in {c["end"] for c in candidates})
+
+    def test_candidate_shape_and_limits(self):
+        sents = numbered_sentences()
+        candidates, _ = score_clips.discover_candidates(
+            sents, min_len=5, max_len=30)
+        for c in candidates:
+            assert 5 <= c["duration"] <= 30
+            assert c["overall"] == c["raw_score"]
+            assert c["endpoint_kind"] in {"quality_best", "preferred_best"}
+            assert c["score_parts"]["text_score"] == c["overall"]
+            assert c["reason"]
+
+
+def choice(end, score, start=0.0):
+    return {"start": start, "end": end, "duration": end - start,
+            "overall": score, "raw_score": score}
+
+
+class TestEndpointChoice:
+    def test_quality_and_preferred_endpoints_are_kept(self):
+        choices = [choice(20, 7.00), choice(45, 7.00), choice(50, 7.05)]
+        kept = score_clips.choose_seed_endpoints(choices, preferred_len=45,
+                                                 band=(30, 120))
+        assert [c["endpoint_kind"] for c in kept] == [
+            "quality_best", "preferred_best"]
+        assert kept[0]["end"] == 50
+        assert kept[1]["end"] == 45
+
+    def test_preferred_endpoint_must_be_within_tolerance(self):
+        choices = [choice(20, 6.80), choice(50, 7.05)]
+        kept = score_clips.choose_seed_endpoints(choices, preferred_len=20,
+                                                 band=(30, 120))
+        assert len(kept) == 1
+        assert kept[0]["end"] == 50
+
+    def test_band_is_used_when_no_preference(self):
+        choices = [choice(20, 7.00), choice(60, 7.00)]
+        kept = score_clips.choose_seed_endpoints(choices, preferred_len=None,
+                                                 band=(30, 120))
+        assert len(kept) == 2
+        assert kept[1]["end"] == 60
+
+    def test_duplicate_endpoint_is_not_kept_twice(self):
+        choices = [choice(45, 7.00)]
+        kept = score_clips.choose_seed_endpoints(choices, preferred_len=45,
+                                                 band=(30, 120))
+        assert len(kept) == 1
+
+
+def candidate(start, end, score, kind="quality_best"):
+    return {"start": start, "end": end, "duration": end - start,
+            "overall": score, "raw_score": score,
+            "hook": f"clip {start}", "score_parts": {"text_score": score},
+            "endpoint_kind": kind, "reason": "test"}
+
+
+class TestOverlap:
+    def test_overlap_ratio_uses_shorter_clip(self):
+        assert score_clips.overlap_ratio(
+            candidate(0, 30, 8.0), candidate(15, 60, 8.0)) == pytest.approx(0.5)
+        assert score_clips.overlap_ratio(
+            candidate(0, 10, 8.0), candidate(5, 15, 8.0)) == pytest.approx(0.5)
+        assert score_clips.overlap_ratio(
+            candidate(0, 10, 8.0), candidate(10, 20, 8.0)) == 0.0
+
+
+class TestDedupe:
+    def test_drops_overlap_above_55_percent(self):
+        kept = score_clips.dedupe_candidates(
+            [candidate(0, 40, 8.5), candidate(10, 50, 8.0)])
+        assert len(kept) == 1
+        assert kept[0]["overall"] == 8.5
+
+    def test_keeps_overlap_at_or_below_55_percent(self):
+        kept = score_clips.dedupe_candidates(
+            [candidate(0, 40, 8.5), candidate(22, 62, 8.0)])
+        assert len(kept) == 2
+
+    def test_tighter_clip_replaces_longer_within_quarter_point(self):
+        kept = score_clips.dedupe_candidates(
+            [candidate(0, 90, 8.4), candidate(0, 45, 8.2)],
+            preferred_len=45, band=(30, 120))
+        assert len(kept) == 1
+        assert kept[0]["duration"] == 45
+
+    def test_failing_tighter_clip_does_not_replace_passing_longer_clip(self):
+        kept = score_clips.dedupe_candidates(
+            [candidate(0, 90, 8.4), candidate(0, 45, 8.2)],
+            preferred_len=45, band=(30, 120), min_score=8.3)
+        assert len(kept) == 1
+        assert kept[0]["duration"] == 90
+
+    def test_near_identical_start_dropped_when_overlap_above_30_percent(self):
+        kept = score_clips.dedupe_candidates(
+            [candidate(0, 60, 8.6), candidate(1, 61, 8.1)])
+        assert len(kept) == 1
+        assert kept[0]["overall"] == 8.6
+
+
+class TestSelection:
+    def test_threshold_is_inclusive(self):
+        segments, stats = score_clips.select_candidates(
+            [candidate(0, 40, 8.0), candidate(50, 90, 7.99)], min_score=8.0)
+        assert [s["overall"] for s in segments] == [8.0]
+        assert stats["passing"] == 1
+
+    def test_none_cap_returns_everything(self):
+        segments, _ = score_clips.select_candidates(
+            [candidate(i * 60, i * 60 + 30, 8.0 + i / 10) for i in range(4)],
+            min_score=8.0)
+        assert len(segments) == 4
+
+    def test_explicit_cap_takes_top_scores(self):
+        segments, _ = score_clips.select_candidates(
+            [candidate(i * 60, i * 60 + 30, 8.0 + i / 10) for i in range(4)],
+            min_score=8.0, max_clips=2)
+        assert len(segments) == 2
+        assert {s["overall"] for s in segments} == {8.2, 8.3}
+
+    def test_segments_are_start_sorted_with_rank(self):
+        segments, _ = score_clips.select_candidates(
+            [candidate(120, 160, 8.1), candidate(0, 40, 8.7),
+             candidate(60, 100, 8.3)], min_score=8.0)
+        assert [s["start"] for s in segments] == [0, 60, 120]
+        assert [s["rank"] for s in segments] == [1, 2, 3]
+
+    def test_zero_passing_writes_empty_stats(self):
+        segments, stats = score_clips.select_candidates(
+            [candidate(0, 40, 7.2)], min_score=8.0)
+        assert segments == []
+        assert stats["passing"] == 0
+        assert stats["passing_score_min"] is None
+        assert stats["score_min"] == 7.2
+
+
+class TestBuildCandidatesCompat:
+    def test_returns_deduped_start_sorted_candidates_below_threshold(self):
+        sents = numbered_sentences()
+        segs = score_clips.build_candidates(
+            sents, min_len=5, max_len=30, max_clips=None)
+        starts = [s["start"] for s in segs]
+        assert starts == sorted(starts)
+        assert any(s["overall"] < 8.0 for s in segs)
+
+    def test_optional_cap_is_applied_after_dedupe(self):
+        sents = numbered_sentences()
+        segs = score_clips.build_candidates(
+            sents, min_len=5, max_len=30, max_clips=2)
+        assert len(segs) == 2
+
+
+class TestArtifacts:
+    def test_run_writes_candidates_and_selection(self, workdir):
+        segs, mode = score_clips.run(workdir, min_score=0, min_len=4, max_len=20)
+        assert mode == "heuristic"
+        candidates = json.loads((workdir / "candidates.json").read_text())
+        selection = json.loads((workdir / "selection.json").read_text())
+        assert candidates["version"] == 1
+        assert candidates["candidates"]
+        assert selection["candidates"] >= len(segs)
+        assert selection["passing"] == len(segs)
+        assert selection["min_score"] == 0
+
+    def test_zero_passing_writes_empty_segments(self, workdir, monkeypatch):
+        low = candidate(0, 20, 7.0)
+        monkeypatch.setattr(score_clips, "discover_candidates",
+                            lambda *a, **k: ([low], {"seeds": 1,
+                            "windows_scanned": 1, "source_duration": 20.0,
+                            "content_profile": "mixed", "source_energy": 0.5}))
+        segs, _ = score_clips.run(workdir, min_score=8.0, min_len=4, max_len=20)
+        assert segs == []
+        assert json.loads((workdir / "segments.json").read_text()) == []
+
+    def test_llm_adjustment_changes_score_not_times(self, workdir, monkeypatch):
+        def fake_chat(model, host, messages, timeout):
+            return [{"index": 0, "adjustment": 0.4, "reason": "strong reaction"}]
+        monkeypatch.setattr(score_clips, "_ollama_chat", fake_chat)
+        segs, mode = score_clips.run(workdir, min_score=0, min_len=4, max_len=20,
+                                     llm="test-model")
+        assert mode == "ollama"
+        assert segs
+        assert any(s.get("overall") != s.get("raw_score") for s in segs)
+
+    def test_invalid_llm_response_is_ignored(self, workdir, monkeypatch):
+        monkeypatch.setattr(score_clips, "_ollama_chat",
+                            lambda *a, **k: [{"index": 99, "adjustment": 9}])
+        segs, mode = score_clips.run(workdir, min_score=0, min_len=4, max_len=20,
+                                     llm="test-model")
+        assert mode == "heuristic"
+        assert segs
+
+
+class TestSearchSharesBuilder:
+    def test_keyword_results_are_deduped_and_start_sorted(self, sample_words):
+        sents = score_clips.sentenceize(sample_words)
+        segs = score_clips.search_candidates(
+            sents, "biggest mistake", min_len=5, max_len=30, max_clips=None)
+        assert segs
+        assert [s["start"] for s in segs] == sorted(s["start"] for s in segs)
+        for i, a in enumerate(segs):
+            for b in segs[i + 1:]:
+                assert score_clips.overlap_ratio(a, b) <= 0.55
 
 
 class TestNearest:
@@ -128,14 +457,14 @@ class TestNearest:
 
 class TestRun:
     def test_run_writes_segments(self, workdir):
-        segs, mode = score_clips.run(workdir)
+        segs, mode = score_clips.run(workdir, min_score=0)
         assert mode == "heuristic"
         assert (workdir / "segments.json").exists()
         on_disk = json.loads((workdir / "segments.json").read_text())
         assert len(on_disk) == len(segs) >= 1
 
     def test_ollama_fallback_on_dead_server(self, workdir):
-        segs, mode = score_clips.run(workdir, llm="qwen2.5:7b",
+        segs, mode = score_clips.run(workdir, llm="qwen2.5:7b", min_score=0,
                                      host="http://127.0.0.1:1", max_clips=3)
         assert mode == "heuristic"       # graceful fallback, no crash
         assert len(segs) >= 1
@@ -147,7 +476,7 @@ class TestRun:
     def test_bom_transcript_accepted(self, workdir):
         raw = (workdir / "transcript.json").read_bytes()
         (workdir / "transcript.json").write_bytes(b"\xef\xbb\xbf" + raw)
-        segs, _ = score_clips.run(workdir)
+        segs, _ = score_clips.run(workdir, min_score=0)
         assert len(segs) >= 1
 
 
@@ -372,12 +701,12 @@ class TestPick:
             score_clips.pick_segments([seg(0, 5, "a")], "x")
 
     def test_run_pick_selects_one(self, workdir):
-        segs, _ = score_clips.run(workdir, min_len=4, max_len=20, pick="1")
+        segs, _ = score_clips.run(workdir, min_score=0, min_len=4, max_len=20, pick="1")
         assert len(segs) == 1
 
     def test_run_pick_out_of_range_exits(self, workdir):
         with pytest.raises(SystemExit):
-            score_clips.run(workdir, min_len=4, max_len=20, pick="99")
+            score_clips.run(workdir, min_score=0, min_len=4, max_len=20, pick="99")
 
 
 class TestPrintTable:
@@ -387,6 +716,78 @@ class TestPrintTable:
         out = capsys.readouterr().out
         assert "alpha hook" in out and "7.2/10" in out
 
+
+
+class TestCliPrompts:
+    def test_prompts_score_and_length(self, monkeypatch):
+        answers = iter(["7.5", "90s"])
+        monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+        got = chopify.prompt_scoring(
+            {"min_score": None, "preferred_len": None}, interactive=True)
+        assert got["min_score"] == 7.5
+        assert got["preferred_len"] == 90
+
+    def test_enter_keeps_existing_defaults(self, monkeypatch):
+        monkeypatch.setattr("builtins.input", lambda prompt: "")
+        got = chopify.prompt_scoring(
+            {"min_score": None, "preferred_len": None},
+            defaults={"min_score": 7.5, "preferred_len": 45},
+            interactive=True)
+        assert got["min_score"] == 7.5
+        assert got["preferred_len"] == 45
+
+    def test_non_interactive_skips_prompts(self, monkeypatch):
+        monkeypatch.setattr("builtins.input",
+                            lambda prompt: pytest.fail("prompted"))
+        got = chopify.prompt_scoring(
+            {"min_score": None, "preferred_len": None}, interactive=False)
+        assert got == {"min_score": None, "preferred_len": None}
+
+    def test_flags_skip_their_prompt(self, monkeypatch):
+        answers = iter(["90s"])
+        monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+        got = chopify.prompt_scoring(
+            {"min_score": 7.0, "preferred_len": None},
+            interactive=True, ask_score=False)
+        assert got["min_score"] == 7.0
+        assert got["preferred_len"] == 90
+
+    def test_invalid_score_reprompts(self, monkeypatch):
+        answers = iter(["11", "8.2", ""])
+        monkeypatch.setattr("builtins.input", lambda prompt: next(answers))
+        got = chopify.prompt_scoring(
+            {"min_score": None, "preferred_len": None},
+            interactive=True, ask_length=False)
+        assert got["min_score"] == 8.2
+
+
+class TestSelectionSummary:
+    def stats(self, **overrides):
+        base = {"windows_scanned": 147456, "source_duration": 2892,
+                "score_min": 4.1, "score_max": 9.2, "passing": 12,
+                "min_score": 8.0, "preferred_len": None}
+        base.update(overrides)
+        return base
+
+    def test_three_line_summary(self):
+        text = score_clips.format_selection_summary(self.stats())
+        lines = text.splitlines()
+        assert lines[0] == ("Selection: minimum score 8.0, preferred length "
+                            "AI chooses.")
+        assert lines[1] == "Scanned 147,456 windows across 48m 12s."
+        assert lines[2] == ("Candidate scores 4.1-9.2. 12 distinct clips at "
+                            "8.0 or above.")
+
+    def test_preferred_length_and_zero_clips(self):
+        text = score_clips.format_selection_summary(self.stats(
+            preferred_len=45, passing=0, score_max=6.8))
+        assert "preferred length 45s" in text
+        assert "0 distinct clips at 8.0 or above" in text
+
+    def test_duration_formats(self):
+        assert score_clips.format_duration(43.7, True) == "43.7s"
+        assert score_clips.format_duration(142) == "2m 22s"
+        assert score_clips.format_duration(3720) == "1h 02m"
 
 
 # --------------------------------------------------------- v1.3: --preview

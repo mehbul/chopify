@@ -99,24 +99,36 @@ def test_resume_reuses_stages_and_invalidates_changed_settings(tmp_path, monkeyp
         data = transcript()
         data["video"] = str(video)
         (workdir / "transcript.json").write_text(json.dumps(data))
-    def score(workdir, **kwargs):
-        calls.append("score")
+    def discover(workdir, **kwargs):
+        calls.append("discover")
+        candidates = [{"start": 1, "end": 2, "duration": 1, "hook": "same",
+                       "overall": 5, "raw_score": 5, "score_parts": {},
+                       "reason": "test"}]
+        (workdir / "candidates.json").write_text(json.dumps(
+            {"version": 1, "candidates": candidates}))
+        return candidates, {"seeds": 1, "windows_scanned": 1,
+                            "source_duration": 10.0}
+    def select(workdir, **kwargs):
+        calls.append("select")
         segments = [{"start": 1, "end": 2, "hook": "same", "overall": 5}]
         (workdir / "segments.json").write_text(json.dumps(segments))
+        (workdir / "selection.json").write_text(json.dumps(
+            {"score_min": 5, "score_max": 5, "passing": 1}))
         return segments, "heuristic"
     monkeypatch.setattr(projects.dt, "transcribe", transcribe)
-    monkeypatch.setattr(projects.score_clips, "run", score)
+    monkeypatch.setattr(projects.score_clips, "discover", discover)
+    monkeypatch.setattr(projects.score_clips, "select", select)
     projects.run_project(path, action="prepare")
     projects.run_project(path, action="prepare")
-    assert calls == ["transcribe", "score"]
+    assert calls == ["transcribe", "discover", "select"]
     state = projects.read_project(path)
     state["options"]["min_len"] = 2
     projects.save_project(path, state)
     projects.run_project(path, action="prepare")
-    assert calls == ["transcribe", "score", "score"]
+    assert calls == ["transcribe", "discover", "select", "discover", "select"]
     source.write_bytes(b"changed video")
     projects.run_project(path, action="prepare")
-    assert calls[-2:] == ["transcribe", "score"]
+    assert calls[-3:] == ["transcribe", "discover", "select"]
 
 
 def test_batch_continues_after_failure_and_uses_separate_projects(tmp_path):
@@ -149,3 +161,102 @@ def test_invalid_embedding_shapes_and_nonfinite_scores_are_rejected():
             semantic.validate_vectors(vectors, 1)
     with pytest.raises(ValueError):
         projects.validate_segments([{"start": 0, "end": 1, "overall": float("nan")}], 2)
+
+
+class TestProjectOptions:
+    def test_new_defaults(self):
+        import projects
+        options = projects.validate_options({})
+        assert options["min_len"] == 15
+        assert options["max_len"] == 300
+        assert options["max_clips"] is None
+        assert options["min_score"] == 8.0
+        assert options["preferred_len"] is None
+
+    def test_none_cap_and_null_score_are_accepted(self):
+        import projects
+        options = projects.validate_options({"max_clips": None, "min_score": None})
+        assert options["max_clips"] is None
+        assert options["min_score"] is None
+
+    def test_preferred_length_is_parsed_and_clipped(self):
+        import projects
+        assert projects.validate_options(
+            {"min_len": 15, "max_len": 100, "preferred_len": "2m"}
+        )["preferred_len"] == 100
+        assert projects.validate_options(
+            {"min_len": 15, "max_len": 100, "preferred_len": 10}
+        )["preferred_len"] == 15
+
+    @pytest.mark.parametrize("value", [0, -1, "abc", "4000s", True])
+    def test_invalid_preferred_length_rejected(self, value):
+        import projects
+        with pytest.raises(ValueError):
+            projects.validate_options({"preferred_len": value})
+
+    @pytest.mark.parametrize("value", [0, 3601, 1.5, True])
+    def test_invalid_cap_rejected(self, value):
+        import projects
+        with pytest.raises(ValueError):
+            projects.validate_options({"max_clips": value})
+
+    def test_changing_score_keeps_discovery_key(self):
+        import projects
+        base = {"min_len": 15, "max_len": 300, "preferred_len": None,
+                "search": None, "semantic": None, "embed_model": "x",
+                "min_score": 8.0, "max_clips": None, "llm": None}
+        d1, s1 = projects.score_keys("transcript", {"words": []}, base)
+        d2, s2 = projects.score_keys(
+            "transcript", {"words": []}, {**base, "min_score": 7.5})
+        assert d1 == d2
+        assert s1 != s2
+
+
+def test_validate_segments_allows_empty_and_preserves_fields():
+    import projects
+    assert projects.validate_segments([], 100) == []
+    rich = {
+        "start": 1.0, "end": 5.0, "hook": "x", "overall": 8.4,
+        "duration": 4.0, "rank": 2, "raw_score": 7.9,
+        "score_parts": {"hook": 0.8}, "evidence": {"audio": 8.0},
+        "reason": "strong",
+    }
+    assert projects.validate_segments([rich], 10)[0] == rich
+
+
+def test_project_detail_exposes_selection(tmp_path):
+    import dashboard
+    import projects
+    projects.init_project(tmp_path / "abc123abc123", "source.mp4", {},
+                          project_id="abc123abc123")
+    (tmp_path / "abc123abc123" / "transcript.json").write_text(
+        json.dumps({"video": "source.mp4", "duration": 100.0, "words": []}),
+        encoding="utf-8")
+    (tmp_path / "abc123abc123" / "segments.json").write_text(
+        json.dumps([{"start": 1.0, "end": 40.0, "hook": "x", "overall": 8.4,
+                     "rank": 1, "duration": 39.0}]), encoding="utf-8")
+    (tmp_path / "abc123abc123" / "selection.json").write_text(
+        json.dumps({"passing": 1, "min_score": 8.0, "content_profile": "mixed"}),
+        encoding="utf-8")
+    detail = dashboard.project_detail(tmp_path, "abc123abc123")
+    assert detail["selection"]["passing"] == 1
+    assert detail["candidates"][0]["rank"] == 1
+
+
+def test_project_detail_without_selection_is_empty(tmp_path):
+    import dashboard
+    import projects
+    projects.init_project(tmp_path / "abc123abc123", "source.mp4", {},
+                          project_id="abc123abc123")
+    (tmp_path / "abc123abc123" / "transcript.json").write_text(
+        json.dumps({"video": "source.mp4", "duration": 10.0, "words": []}),
+        encoding="utf-8")
+    assert dashboard.project_detail(tmp_path, "abc123abc123")["selection"] == {}
+
+
+def test_settings_accept_null_cap_and_preferred_length():
+    import projects
+    options = projects.validate_options({
+        "max_clips": None, "min_score": 8.0, "preferred_len": "90s"})
+    assert options["max_clips"] is None
+    assert options["preferred_len"] == 90
