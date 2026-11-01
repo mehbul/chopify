@@ -154,7 +154,7 @@ def main():
               "faster-whisper, opencv)", flush=True)
 
     import projects
-    options = {k: getattr(args, k) for k in projects.DEFAULT_OPTIONS if k != "caption"}
+    options = {k: getattr(args, k, None) for k in projects.DEFAULT_OPTIONS if k != "caption"}
     options["caption"] = caption
     if options["brand"]:
         options["brand"] = str(Path(options["brand"]).resolve())
