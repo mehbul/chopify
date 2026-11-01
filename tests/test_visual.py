@@ -1,0 +1,112 @@
+"""Unit tests for the local visual evidence timeline."""
+import numpy as np
+import pytest
+
+import visual
+
+
+def flat_frames(count=6):
+    return [np.zeros((visual.FRAME_HEIGHT, visual.FRAME_WIDTH, 3),
+                     dtype=np.uint8) for _ in range(count)]
+
+
+def test_flat_frames_have_no_motion_or_cuts():
+    features = visual.features_from_frames(flat_frames(), start=10.0)
+    assert features.start == pytest.approx(10.0)
+    assert features.end == pytest.approx(13.0)
+    assert np.allclose(features.motion, 0.0)
+    assert not features.cut.any()
+    assert not features.face.any()
+
+
+def test_a_hard_cut_is_detected():
+    frames = []
+    for index in range(6):
+        frame = np.zeros((visual.FRAME_HEIGHT, visual.FRAME_WIDTH, 3),
+                         dtype=np.uint8)
+        if index >= 3:
+            frame[:] = 255
+        frames.append(frame)
+    features = visual.features_from_frames(frames, start=0.0)
+    assert features.cut[3]
+    assert features.change[3] > features.change[0]
+    assert features.motion[3] > features.motion[0]
+
+
+def test_cache_round_trip(tmp_path):
+    features = visual.features_from_frames(flat_frames(4), start=5.0)
+    path = tmp_path / "section.npz"
+    visual.save_features(features, path, identity="abc")
+    loaded = visual.load_features(path, identity="abc")
+    assert loaded is not None
+    assert loaded.start == pytest.approx(features.start)
+    assert loaded.end == pytest.approx(features.end)
+    assert np.allclose(loaded.motion, features.motion)
+    assert visual.load_features(path, identity="other") is None
+
+
+def test_extract_features_decodes_a_generated_video(tmp_path):
+    import shutil
+    import subprocess
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    video = tmp_path / "cut.mp4"
+    subprocess.run([
+        "ffmpeg", "-y", "-v", "error",
+        "-f", "lavfi", "-i", "color=c=black:s=160x90:d=2",
+        "-f", "lavfi", "-i", "color=c=white:s=160x90:d=2",
+        "-filter_complex", "[0:v][1:v]concat=n=2:v=1[v]",
+        "-map", "[v]", "-r", "10", "-pix_fmt", "yuv420p", str(video),
+    ], check=True)
+    features = visual.extract_features(video, 0.0, 4.0)
+    assert features is not None
+    assert len(features.motion) >= 4
+    assert features.change.max() > 0.4
+
+
+def feature_arrays(motion, change=None, center=None, face=None,
+                   face_motion=None, start=0.0):
+    motion = np.asarray(motion, dtype=np.float32)
+    count = len(motion)
+    return visual.VisualFeatures(
+        start=start,
+        end=start + count / visual.SAMPLE_FPS,
+        times=start + np.arange(count) / visual.SAMPLE_FPS,
+        motion=motion,
+        cut=np.zeros(count, dtype=bool),
+        change=(np.asarray(change, dtype=np.float32)
+                if change is not None else np.full(count, 0.05, np.float32)),
+        center_change=(np.asarray(center, dtype=np.float32)
+                       if center is not None
+                       else np.full(count, 0.05, np.float32)),
+        face=(np.asarray(face, dtype=bool) if face is not None
+              else np.zeros(count, dtype=bool)),
+        face_motion=(np.asarray(face_motion, dtype=np.float32)
+                     if face_motion is not None
+                     else np.zeros(count, dtype=np.float32)),
+    )
+
+
+def test_flat_motion_is_capped_below_action_evidence():
+    features = feature_arrays([0.05] * 12)
+    got = visual.visual_evidence(features, 0.0, features.end)
+    assert got["score"] <= 6.0
+    assert got["event_arc"] < 0.30
+
+
+def test_action_arc_beats_flat_motion():
+    rising = feature_arrays([0.02] * 4 + [0.3, 0.5, 0.4] + [0.05] * 5)
+    flat = feature_arrays([0.05] * 12)
+    assert visual.visual_evidence(rising, 0.0, rising.end)["score"] > \
+        visual.visual_evidence(flat, 0.0, flat.end)["score"] + 2.0
+
+
+def test_missing_facecam_is_neutral():
+    features = feature_arrays([0.05] * 12)
+    got = visual.visual_evidence(features, 0.0, features.end)
+    assert got["facecam"] == pytest.approx(0.5)
+
+
+def test_single_visual_modality_shrinks_toward_neutral():
+    assert visual.combine_visual(8.0, None) == pytest.approx(7.55)
+    assert visual.combine_visual(8.0, 8.0) == pytest.approx(8.0)
