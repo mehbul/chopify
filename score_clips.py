@@ -31,6 +31,7 @@ import urllib.request
 from pathlib import Path
 
 import evidence
+import visual
 
 OLLAMA_HOST = "http://localhost:11434"
 
@@ -1215,18 +1216,23 @@ def _nearest(values, t):
 # ----------------------------------------------------------------- run / cli
 
 def source_evidence(workdir, data):
-    """Measure the source profile and energy before window selection."""
-    timeline = evidence.load_audio_timeline(data.get("video"), workdir)
+    """Measure audio, visual, and speech baselines before window selection."""
+    source = data.get("video")
+    timeline = evidence.load_audio_timeline(source, workdir)
     words = data.get("words") or []
     duration = float(data.get("duration")
                      or getattr(timeline, "duration", 0) or 0)
     speech_density = len(words) / duration if duration else 0.0
-    variability = timeline.variability if timeline is not None else 0.0
-    burst_rate = timeline.burst_rate if timeline is not None else 0.0
-    profile = evidence.content_profile(speech_density, 0.0, 0.0, burst_rate)
-    energy = (evidence.source_energy(variability, None)
-              if timeline is not None else 0.5)
-    return timeline, profile, energy, speech_density
+    audio_usable = evidence.timeline_has_signal(timeline)
+    baseline = visual.sample_baseline(source, workdir, duration)
+    visual_value = baseline.value if baseline is not None else None
+    cut_rate = baseline.cut_rate if baseline is not None else 0.0
+    burst_rate = timeline.burst_rate if audio_usable else 0.0
+    profile = evidence.content_profile(
+        speech_density, visual_value, cut_rate, burst_rate)
+    variability = timeline.variability if audio_usable else None
+    energy = evidence.source_energy(variability, visual_value)
+    return (timeline, profile, energy, speech_density, audio_usable, baseline)
 
 
 def candidate_words_per_second(candidate):
@@ -1260,34 +1266,45 @@ def discover(workdir, min_len=15, max_len=300, preferred_len=None,
     workdir = Path(workdir)
     data = load_transcript(workdir)
     sentences = sentenceize(data.get("words") or [])
-    timeline, profile, energy, _ = source_evidence(workdir, data)
+    (timeline, profile, energy, _, audio_usable,
+     baseline) = source_evidence(workdir, data)
     duration = float(data.get("duration")
                      or getattr(timeline, "duration", 0) or 0)
     effective_band = (evidence.profile_band(profile)
                       if band is None else band)
+    usable_timeline = timeline if audio_usable else None
+    source_duration = duration or float(getattr(timeline, "duration", 0) or 0)
     if not sentences:
-        if timeline is None:
+        if usable_timeline is None and baseline is None:
             raise ValueError(
                 "No speech and no media evidence; this source cannot be scored.")
         print(f"No transcript words; scanning media events over "
-              f"{duration or timeline.duration:.0f}s", flush=True)
+              f"{source_duration:.0f}s", flush=True)
         candidates, stats = discover_media_candidates(
-            timeline, min_len, max_len, preferred_len=preferred_len,
+            usable_timeline, min_len, max_len, preferred_len=preferred_len,
             band=effective_band, profile=profile, source_energy=energy,
-            duration=duration or timeline.duration)
+            duration=source_duration)
     else:
         print(f"Transcript: {len(sentences)} sentences over "
               f"{duration or 0:.0f}s", flush=True)
         candidates, stats = discover_candidates(
             sentences, min_len, max_len, preferred_len=preferred_len,
             band=effective_band, progress=progress)
-        candidates = attach_audio_evidence(candidates, timeline, profile, energy)
+        candidates = attach_audio_evidence(
+            candidates, usable_timeline, profile, energy)
     stats.update({
         "source_duration": duration or stats.get("source_duration"),
         "content_profile": profile,
         "source_energy": energy,
-        "evidence_available": {"audio": timeline is not None,
-                               "visual": False},
+        "evidence_available": {"audio": audio_usable,
+                               "visual": baseline is not None},
+        "visual_baseline": None if baseline is None else {
+            "value": round(baseline.value, 4),
+            "motion_norm": round(baseline.motion_norm, 4),
+            "cut_rate": round(baseline.cut_rate, 4),
+            "facecam_norm": round(baseline.facecam_norm, 4),
+            "samples": baseline.samples,
+        },
     })
     save_candidates(workdir, candidates, stats)
     return candidates, stats

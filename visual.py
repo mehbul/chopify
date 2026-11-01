@@ -343,6 +343,125 @@ def visual_features_for(sections, start, end):
     return None
 
 
+# ------------------------------------------------------------ source baseline
+
+@dataclass
+class VisualBaseline:
+    """Sparse whole-source visual baseline."""
+
+    value: float
+    motion_norm: float
+    cut_rate: float
+    facecam_norm: float
+    samples: int
+
+
+def baseline_ranges(duration, samples=BASELINE_SAMPLES,
+                    seconds=BASELINE_SECONDS):
+    """Evenly spaced short sample ranges that cover the source."""
+    duration = float(duration or 0.0)
+    if duration <= 0:
+        return []
+    seconds = min(float(seconds), duration)
+    count = max(1, min(int(samples), int(duration // seconds) or 1))
+    ranges = []
+    for index in range(count):
+        center = (index + 0.5) * duration / count
+        start = min(max(0.0, center - seconds / 2.0), duration - seconds)
+        ranges.append((round(start, 3), round(start + seconds, 3)))
+    return ranges
+
+
+def _baseline_path(workdir):
+    return Path(workdir) / BASELINE_CACHE
+
+
+def _load_baseline(path, identity):
+    path = Path(path)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if int(data.get("version", -1)) != FEATURE_VERSION:
+            return None
+        if str(data.get("identity", "")) != str(identity):
+            return None
+        return VisualBaseline(
+            value=float(data["value"]),
+            motion_norm=float(data["motion_norm"]),
+            cut_rate=float(data["cut_rate"]),
+            facecam_norm=float(data["facecam_norm"]),
+            samples=int(data["samples"]),
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _save_baseline(path, identity, baseline, duration):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(path.suffix + ".tmp")
+    temp.write_text(json.dumps({
+        "version": FEATURE_VERSION,
+        "identity": str(identity),
+        "duration": round(float(duration), 3),
+        "value": round(baseline.value, 4),
+        "motion_norm": round(baseline.motion_norm, 4),
+        "cut_rate": round(baseline.cut_rate, 4),
+        "facecam_norm": round(baseline.facecam_norm, 4),
+        "samples": baseline.samples,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    temp.replace(path)
+
+
+def sample_baseline(source, workdir, duration):
+    """Sample up to 12 five-second ranges and cache the visual baseline."""
+    if not source or not Path(source).is_file() or float(duration or 0) <= 0:
+        return None
+    identity = evidence.source_identity(source)
+    path = _baseline_path(workdir)
+    cached = _load_baseline(path, identity)
+    if cached is not None:
+        return cached
+
+    ranges = baseline_ranges(duration)
+    sections = []
+    for index, (start, end) in enumerate(ranges):
+        features = extract_features(source, start, end)
+        if features is None:
+            if index == 0:
+                return None
+            continue
+        sections.append(features)
+    if not sections:
+        return None
+
+    motion = np.concatenate([item.motion for item in sections])
+    faces = np.concatenate([item.face for item in sections])
+    cuts = sum(int(item.cut.sum()) for item in sections)
+    sampled = sum(max(0.0, item.end - item.start + 1.0 / SAMPLE_FPS)
+                  for item in sections)
+    mean_motion = float(np.mean(motion)) if len(motion) else 0.0
+    cut_rate = (cuts / sampled * 60.0) if sampled > 0 else 0.0
+    facecam_norm = float(np.mean(faces)) if len(faces) else 0.0
+    motion_norm = evidence.clamp(mean_motion / 0.25)
+    value = evidence.clamp(0.5 * motion_norm
+                           + 0.3 * evidence.clamp(cut_rate / 30.0)
+                           + 0.2 * facecam_norm)
+    baseline = VisualBaseline(
+        value=value,
+        motion_norm=motion_norm,
+        cut_rate=cut_rate,
+        facecam_norm=facecam_norm,
+        samples=len(sections),
+    )
+    try:
+        _save_baseline(path, identity, baseline, duration)
+    except OSError:
+        pass
+    return baseline
+
+
 # --------------------------------------------------------------- evidence math
 
 def visual_evidence(features, start, end):

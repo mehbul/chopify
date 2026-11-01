@@ -953,3 +953,41 @@ def test_wordless_flat_source_fails_clearly(tmp_path):
     workdir = wordless_workdir(tmp_path, tmp_path / "flat.mp4", 30.0)
     with pytest.raises(ValueError, match="No speech and no media evidence"):
         score_clips.run(workdir, min_score=8.0)
+
+
+def test_silent_audio_uses_visual_baseline_energy(workdir, monkeypatch):
+    import evidence
+    import visual
+    flat = evidence.features_from_samples(
+        np.full(evidence.SAMPLE_RATE * 5, 0.001, dtype=np.float32))
+    monkeypatch.setattr(evidence, "load_audio_timeline", lambda *a, **k: flat)
+    monkeypatch.setattr(
+        visual, "sample_baseline",
+        lambda *a, **k: visual.VisualBaseline(0.8, 0.9, 20.0, 0.1, 12))
+    data = json.loads((workdir / "transcript.json").read_text())
+    (timeline, profile, energy, density, audio_usable,
+     baseline) = score_clips.source_evidence(workdir, data)
+    assert timeline is flat
+    assert audio_usable is False
+    assert baseline is not None
+    assert baseline.value == pytest.approx(0.8)
+    assert energy > 0.5
+    assert profile == "gameplay/action"
+
+
+def test_silent_audio_discovery_marks_audio_unavailable(workdir, monkeypatch):
+    import evidence
+    import visual
+    flat = evidence.features_from_samples(
+        np.full(evidence.SAMPLE_RATE * 5, 0.001, dtype=np.float32))
+    monkeypatch.setattr(evidence, "load_audio_timeline", lambda *a, **k: flat)
+    monkeypatch.setattr(
+        visual, "sample_baseline",
+        lambda *a, **k: visual.VisualBaseline(0.8, 0.9, 20.0, 0.1, 12))
+    score_clips.run(workdir, min_score=0, min_len=4, max_len=20)
+    selection = json.loads((workdir / "selection.json").read_text())
+    assert selection["evidence_available"] == {"audio": False, "visual": True}
+    candidates = json.loads(
+        (workdir / "candidates.json").read_text())["candidates"]
+    assert candidates
+    assert all(item["evidence"]["audio"] is None for item in candidates)

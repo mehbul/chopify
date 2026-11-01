@@ -110,3 +110,60 @@ def test_missing_facecam_is_neutral():
 def test_single_visual_modality_shrinks_toward_neutral():
     assert visual.combine_visual(8.0, None) == pytest.approx(7.55)
     assert visual.combine_visual(8.0, 8.0) == pytest.approx(8.0)
+
+
+def test_baseline_ranges_are_even_and_cover_the_source():
+    ranges = visual.baseline_ranges(60.0)
+    assert len(ranges) == 12
+    assert ranges[0][0] == pytest.approx(0.0)
+    assert ranges[-1][1] == pytest.approx(60.0)
+    assert all(end - start == pytest.approx(5.0) for start, end in ranges)
+
+
+def test_short_source_baseline_range_is_clamped():
+    assert visual.baseline_ranges(3.0) == [(0.0, 3.0)]
+    assert visual.baseline_ranges(0.0) == []
+
+
+def test_sample_baseline_caches_and_blends_signals(tmp_path, monkeypatch):
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"x")
+    calls = []
+
+    def fake_extract(path, start, end):
+        calls.append((start, end))
+        return feature_arrays([0.1, 0.2, 0.15, 0.18],
+                              face=[True, True, False, True], start=start)
+
+    monkeypatch.setattr(visual, "extract_features", fake_extract)
+    first = visual.sample_baseline(source, tmp_path, 60.0)
+    assert first is not None
+    assert first.samples == 12
+    assert first.motion_norm > 0
+    assert first.facecam_norm == pytest.approx(0.75)
+    assert first.value > 0
+    before = len(calls)
+    second = visual.sample_baseline(source, tmp_path, 60.0)
+    assert second.samples == first.samples
+    assert second.value == pytest.approx(first.value, abs=1e-3)
+    assert second.motion_norm == pytest.approx(first.motion_norm, abs=1e-3)
+    assert len(calls) == before
+    assert (tmp_path / visual.BASELINE_CACHE).exists()
+
+
+def test_flat_audio_is_unavailable_not_zero():
+    import evidence
+    flat = evidence.features_from_samples(
+        np.full(evidence.SAMPLE_RATE * 5, 0.001, dtype=np.float32))
+    assert not evidence.timeline_has_signal(flat)
+    varying = evidence.features_from_samples(np.concatenate([
+        np.full(evidence.SAMPLE_RATE * 5, 0.001, dtype=np.float32),
+        np.full(evidence.SAMPLE_RATE, 0.8, dtype=np.float32),
+    ]))
+    assert evidence.timeline_has_signal(varying)
+
+
+def test_visual_baseline_raises_source_energy_and_profile():
+    import evidence
+    assert evidence.source_energy(0.2, 0.9) > evidence.source_energy(0.2, 0.1)
+    assert evidence.content_profile(0.4, 0.8, 0, 0) == "gameplay/action"
