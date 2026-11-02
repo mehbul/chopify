@@ -574,28 +574,35 @@ def media_candidate_record(start, end, seed_kind="event",
 
 def discover_media_candidates(timeline, min_len, max_len, preferred_len=None,
                               band=(15, 60), profile="gameplay/action",
-                              source_energy=0.5, duration=None):
-    """Build event-seeded windows for a source with no transcript words.
+                              source_energy=0.5, duration=None,
+                              visual_baseline=None, audio_usable=None):
+    """Build event or grid seeds for a source with no transcript words.
 
-    Detected peaks become ``event`` seeds. When a varying source has no peak
-    above the burst threshold, evenly spaced ``action`` seeds are used instead.
-    Every candidate is scored from the cached audio timeline; there is no text
-    to score.
+    Detected audio peaks become ``event`` seeds. A usable but peakless audio
+    track or a varying visual baseline falls back to evenly spaced ``grid``
+    seeds. Every candidate is scored from media evidence; there is no text.
     """
     source_duration = float(duration or getattr(timeline, "duration", 0) or 0)
-    peaks = timeline.peak_times(min_gap=10.0) if timeline is not None else []
+    if audio_usable is None:
+        audio_usable = evidence.timeline_has_signal(timeline)
+    usable_timeline = timeline if audio_usable else None
+    peaks = (usable_timeline.peak_times(min_gap=10.0)
+             if usable_timeline is not None else [])
+    visual_varies = (visual_baseline is not None
+                     and (visual_baseline.value > 0.02
+                          or visual_baseline.cut_rate > 0.0))
     if peaks:
         seeds = [(max(0.0, float(peak) - 2.0), "event") for peak in peaks]
-    elif timeline is None or timeline.variability < 0.02:
-        raise ValueError(
-            "No speech and no media evidence; this source cannot be scored.")
-    else:
+    elif usable_timeline is not None or visual_varies:
         step = max(30.0, float(max_len) / 2.0)
         seeds = []
         position = 0.0
         while position < source_duration:
             seeds.append((position, "grid"))
             position += step
+    else:
+        raise ValueError(
+            "No speech and no media evidence; this source cannot be scored.")
 
     ladder = duration_ladder(min_len, max_len, preferred_len)
     candidates = []
@@ -603,9 +610,13 @@ def discover_media_candidates(timeline, min_len, max_len, preferred_len=None,
     for seed, seed_kind in seeds:
         choices = {}
         for target in ladder:
-            start = timeline.trough_near(seed, radius=1.5)
-            end = timeline.trough_near(min(source_duration, seed + target),
-                                       radius=1.5)
+            if usable_timeline is not None:
+                start = usable_timeline.trough_near(seed, radius=1.5)
+                end_target = min(source_duration, seed + target)
+                end = usable_timeline.trough_near(end_target, radius=1.5)
+            else:
+                start = max(0.0, seed)
+                end = min(source_duration, seed + target)
             if end - start < min_len - 1e-9 or end - start > max_len + 1e-9:
                 continue
             key = (round(start, 2), round(end, 2))
@@ -614,12 +625,15 @@ def discover_media_candidates(timeline, min_len, max_len, preferred_len=None,
             windows_scanned += 1
             record = media_candidate_record(
                 start, end, seed_kind=seed_kind, profile=profile)
-            audio = evidence.audio_evidence(timeline, record["start"],
-                                            record["end"])
+            audio = (evidence.audio_evidence(usable_timeline, record["start"],
+                                             record["end"])
+                     if usable_timeline is not None else None)
             record = evidence.apply_evidence(
-                record, audio=audio["score"], profile=profile,
-                source_energy=source_energy, words_per_second=0.0,
-                action_arc=audio["event_arc"])
+                record,
+                audio=None if audio is None else audio["score"],
+                profile=profile, source_energy=source_energy,
+                words_per_second=0.0,
+                action_arc=None if audio is None else audio["event_arc"])
             choices[key] = record
         if choices:
             candidates.extend(choose_seed_endpoints(
@@ -867,6 +881,10 @@ def select_candidates(candidates, min_score=8.0, max_clips=None,
         "content_profile": discovery.get("content_profile", "mixed"),
         "source_energy": discovery.get("source_energy", 0.5),
         "evidence_available": availability,
+        "visual_baseline": discovery.get("visual_baseline"),
+        "visual_ranges": discovery.get("visual_ranges", 0),
+        "visual_sections": discovery.get("visual_sections", 0),
+        "warnings": discovery.get("warnings", []),
     }
     return segments, stats
 
@@ -894,6 +912,10 @@ def save_candidates(workdir, candidates, stats, mode="heuristic"):
         "windows_scanned": stats.get("windows_scanned", 0),
         "evidence_available": stats.get(
             "evidence_available", {"audio": False, "visual": False}),
+        "visual_baseline": stats.get("visual_baseline"),
+        "visual_ranges": stats.get("visual_ranges", 0),
+        "visual_sections": stats.get("visual_sections", 0),
+        "warnings": stats.get("warnings", []),
         "candidates": list(candidates),
     }
     _write_json(Path(workdir) / "candidates.json", envelope)
@@ -912,7 +934,9 @@ def load_candidates(workdir):
         raise SystemExit("candidates.json is missing a candidate list.")
     stats = {key: data.get(key) for key in
              ("source_duration", "content_profile", "source_energy", "seeds",
-              "windows_scanned", "mode", "evidence_available")}
+              "windows_scanned", "mode", "evidence_available",
+              "visual_baseline", "visual_ranges", "visual_sections",
+              "warnings")}
     return data["candidates"], stats
 
 
@@ -1260,6 +1284,94 @@ def attach_audio_evidence(candidates, timeline, profile, energy):
     return updated
 
 
+def visual_potential(candidate, profile, energy, audio_usable):
+    """Optimistic score ceiling used to decide which ranges deserve frames."""
+    raw_score = float(candidate.get("raw_score", candidate["overall"]))
+    sparse = candidate_words_per_second(candidate) < 0.8
+    weight = evidence.evidence_weight(energy, profile, sparse=sparse)
+    audio = (candidate.get("evidence") or {}).get("audio")
+    audio_adjustment = (0.0 if audio is None
+                        else (float(audio) - 5.0) * 0.6 * weight)
+    text_score = max(raw_score, 7.0) if sparse else raw_score
+    visual_share = 0.4 if audio_usable else 1.0
+    max_visual_bonus = 5.0 * 0.6 * weight * visual_share
+    return text_score + audio_adjustment + max_visual_bonus
+
+
+def visual_shortlist(candidates, profile, energy, audio_usable):
+    """Keep text candidates that could still reach 8.0 with visual evidence."""
+    shortlisted = []
+    for candidate in candidates:
+        if candidate.get("seed_kind") != "sentence":
+            shortlisted.append(candidate)
+        elif visual_potential(candidate, profile, energy,
+                              audio_usable) >= 8.0:
+            shortlisted.append(candidate)
+    return shortlisted
+
+
+def attach_media_evidence(candidates, sections, timeline, profile, energy,
+                          audio_usable, min_len, max_len):
+    """Blend audio and visual evidence and refine wordless action boundaries."""
+    updated = []
+    for candidate in candidates:
+        record = dict(candidate)
+        media = record.get("seed_kind") != "sentence"
+        section = (visual.visual_features_for(
+            sections, record["start"], record["end"])
+            if sections else None)
+        audio_hit = (evidence.audio_evidence(
+            timeline, record["start"], record["end"])
+            if audio_usable and timeline is not None else None)
+        visual_hit = (visual.visual_evidence(
+            section, record["start"], record["end"])
+            if section is not None else None)
+        if media and section is not None:
+            new_start, new_end = visual.refine_media_boundary(
+                section, timeline if audio_usable else None,
+                record["start"], record["end"], min_len, max_len)
+            changed = (abs(new_start - float(record["start"])) > 1e-6
+                       or abs(new_end - float(record["end"])) > 1e-6)
+            new_section = (visual.visual_features_for(
+                sections, new_start, new_end)
+                if changed else section)
+            if changed and new_section is not None:
+                new_audio = (evidence.audio_evidence(
+                    timeline, new_start, new_end)
+                    if audio_usable and timeline is not None else None)
+                new_visual = visual.visual_evidence(
+                    new_section, new_start, new_end)
+                before = evidence.combine_evidence(
+                    None if audio_hit is None else audio_hit["score"],
+                    None if visual_hit is None else visual_hit["score"])
+                after = evidence.combine_evidence(
+                    None if new_audio is None else new_audio["score"],
+                    None if new_visual is None else new_visual["score"])
+                if after > before + 1e-9:
+                    record["start"] = round(float(new_start), 2)
+                    record["end"] = round(float(new_end), 2)
+                    record["duration"] = round(
+                        record["end"] - record["start"], 2)
+                    label = ("event" if record.get("seed_kind") == "event"
+                             else "action")
+                    record["hook"] = f"{label} at {int(record['start'])}s"
+                    section = new_section
+                    audio_hit, visual_hit = new_audio, new_visual
+        arcs = [hit["event_arc"] for hit in (audio_hit, visual_hit)
+                if hit is not None]
+        record = evidence.apply_evidence(
+            record,
+            audio=None if audio_hit is None else audio_hit["score"],
+            visual=None if visual_hit is None else visual_hit["score"],
+            profile=profile,
+            source_energy=energy,
+            words_per_second=candidate_words_per_second(record),
+            action_arc=max(arcs) if arcs else None)
+        record["profile"] = profile
+        updated.append(record)
+    return updated
+
+
 def discover(workdir, min_len=15, max_len=300, preferred_len=None,
              band=None, progress=None):
     """Load the transcript, measure evidence, discover, write candidates.json."""
@@ -1274,6 +1386,7 @@ def discover(workdir, min_len=15, max_len=300, preferred_len=None,
                       if band is None else band)
     usable_timeline = timeline if audio_usable else None
     source_duration = duration or float(getattr(timeline, "duration", 0) or 0)
+    source = data.get("video")
     if not sentences:
         if usable_timeline is None and baseline is None:
             raise ValueError(
@@ -1283,7 +1396,8 @@ def discover(workdir, min_len=15, max_len=300, preferred_len=None,
         candidates, stats = discover_media_candidates(
             usable_timeline, min_len, max_len, preferred_len=preferred_len,
             band=effective_band, profile=profile, source_energy=energy,
-            duration=source_duration)
+            duration=source_duration, visual_baseline=baseline,
+            audio_usable=audio_usable)
     else:
         print(f"Transcript: {len(sentences)} sentences over "
               f"{duration or 0:.0f}s", flush=True)
@@ -1292,12 +1406,26 @@ def discover(workdir, min_len=15, max_len=300, preferred_len=None,
             band=effective_band, progress=progress)
         candidates = attach_audio_evidence(
             candidates, usable_timeline, profile, energy)
+
+    shortlist = visual_shortlist(candidates, profile, energy, audio_usable)
+    visual_ranges = visual.merge_ranges(shortlist, source_duration)
+    sections = (visual.load_or_analyze(source, workdir, visual_ranges)
+                if visual_ranges else [])
+    candidates = attach_media_evidence(
+        candidates, sections, usable_timeline, profile, energy, audio_usable,
+        min_len, max_len)
+    warnings = []
+    if visual_ranges and source and Path(source).is_file() and not sections:
+        warnings.append(
+            "Visual evidence was unavailable; scored from audio and text.")
     stats.update({
-        "source_duration": duration or stats.get("source_duration"),
+        "source_duration": source_duration or stats.get("source_duration"),
         "content_profile": profile,
         "source_energy": energy,
-        "evidence_available": {"audio": audio_usable,
-                               "visual": baseline is not None},
+        "evidence_available": {
+            "audio": audio_usable,
+            "visual": baseline is not None or bool(sections),
+        },
         "visual_baseline": None if baseline is None else {
             "value": round(baseline.value, 4),
             "motion_norm": round(baseline.motion_norm, 4),
@@ -1305,6 +1433,9 @@ def discover(workdir, min_len=15, max_len=300, preferred_len=None,
             "facecam_norm": round(baseline.facecam_norm, 4),
             "samples": baseline.samples,
         },
+        "visual_ranges": len(visual_ranges),
+        "visual_sections": len(sections),
+        "warnings": warnings,
     })
     save_candidates(workdir, candidates, stats)
     return candidates, stats

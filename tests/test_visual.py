@@ -167,3 +167,42 @@ def test_visual_baseline_raises_source_energy_and_profile():
     import evidence
     assert evidence.source_energy(0.2, 0.9) > evidence.source_energy(0.2, 0.1)
     assert evidence.content_profile(0.4, 0.8, 0, 0) == "gameplay/action"
+
+
+def test_merge_ranges_pads_and_merges_overlapping_candidates():
+    merged = visual.merge_ranges([
+        {"start": 10.0, "end": 20.0},
+        {"start": 21.0, "end": 30.0},
+        {"start": 40.0, "end": 50.0},
+    ], duration=60.0, pad=2.0)
+    assert merged == [(8.0, 32.0), (38.0, 52.0)]
+    assert visual.merge_ranges([], duration=60.0) == []
+
+
+def test_merge_ranges_clamps_to_source_bounds():
+    merged = visual.merge_ranges([{"start": 0.0, "end": 14.0}],
+                                 duration=15.0, pad=2.0)
+    assert merged == [(0.0, 15.0)]
+
+
+def test_refine_media_boundary_snaps_to_motion_onset():
+    times = np.arange(0.0, 20.0, 1.0 / visual.SAMPLE_FPS)
+    motion = np.full(len(times), 0.02, dtype=np.float32)
+    spike = (times >= 10.0) & (times < 10.5)
+    motion[spike] = 0.6
+    features = visual.VisualFeatures(
+        start=0.0, end=20.0, times=times, motion=motion,
+        cut=np.abs(times - 10.0) < 1e-9,
+        change=np.full(len(times), 0.03, dtype=np.float32),
+        center_change=np.full(len(times), 0.03, dtype=np.float32),
+        face=np.zeros(len(times), dtype=bool),
+        face_motion=np.zeros(len(times), dtype=np.float32))
+    start, end = visual.refine_media_boundary(
+        features, None, 9.0, 18.0, 5.0, 20.0)
+    assert start == pytest.approx(9.9, abs=0.15)
+    assert 5.0 <= end - start <= 20.0
+
+
+def test_refine_media_boundary_keeps_range_without_evidence():
+    assert visual.refine_media_boundary(
+        None, None, 5.0, 15.0, 5.0, 20.0) == (5.0, 15.0)

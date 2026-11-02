@@ -11,6 +11,7 @@ import download_and_transcribe as dt
 import render_clips
 import score_clips
 import evidence
+import visual
 import branding
 from captions import update_transcript
 
@@ -105,7 +106,8 @@ def score_keys(transcript_key, data, options):
         "search", "semantic", "embed_model", "min_len", "max_len",
         "preferred_len")}
     discovery_key = digest([transcript_key, data, discovery_options,
-                            evidence.EVIDENCE_VERSION])
+                            evidence.EVIDENCE_VERSION,
+                            visual.FEATURE_VERSION])
     selection_options = {key: options[key] for key in (
         "min_score", "max_clips", "llm")}
     selection_key = digest([discovery_key, selection_options])

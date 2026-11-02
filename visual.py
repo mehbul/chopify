@@ -462,6 +462,173 @@ def sample_baseline(source, workdir, duration):
     return baseline
 
 
+# ------------------------------------------------------------ range planning
+
+BOUNDARY_RADIUS = 1.5
+
+
+def merge_ranges(candidates, duration, pad=2.0):
+    """Merge padded candidate ranges into the smallest useful decode set."""
+    duration = max(0.0, float(duration or 0.0))
+    padded = []
+    for item in candidates or []:
+        try:
+            start = float(item["start"])
+            end = float(item["end"])
+        except (TypeError, KeyError):
+            continue
+        start = max(0.0, start - float(pad))
+        end = min(duration, end + float(pad)) if duration else end + float(pad)
+        if end > start:
+            padded.append((start, end))
+    padded.sort()
+    merged = []
+    for start, end in padded:
+        if merged and start <= merged[-1][1] + float(pad) + 1e-9:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _local_extreme_times(times, values, low, high, mode="min"):
+    times = np.asarray(times, dtype=np.float64)
+    values = np.asarray(values, dtype=np.float64)
+    if len(times) < 3 or len(values) != len(times):
+        return []
+    found = []
+    for index in np.flatnonzero((times >= float(low)) & (times <= float(high))):
+        if index <= 0 or index >= len(values) - 1:
+            continue
+        value = values[index]
+        left, right = values[index - 1], values[index + 1]
+        if mode == "min" and value <= left and value <= right:
+            found.append(float(times[index]))
+        elif mode == "max" and value >= left and value >= right:
+            found.append(float(times[index]))
+    return found
+
+
+def _audio_rises(timeline, low, high):
+    if timeline is None or len(timeline.rms) < 2:
+        return []
+    rms = np.asarray(timeline.rms, dtype=np.float64)
+    first = max(1, int(math.floor(float(low))))
+    last = min(len(rms) - 1, int(math.ceil(float(high))))
+    rises = []
+    for index in range(first, last + 1):
+        if rms[index] - rms[index - 1] >= 2.0:
+            rises.append(float(index))
+    return rises
+
+
+def _visual_onsets(features, low, high):
+    if features is None or len(features.times) == 0:
+        return []
+    mask = ((features.times >= float(low)) & (features.times <= float(high)))
+    indices = np.flatnonzero(mask)
+    onsets = [float(features.times[index]) for index in indices
+              if features.cut[index]]
+    for index in indices:
+        if index <= 0 or index >= len(features.motion) - 1:
+            continue
+        value = float(features.motion[index])
+        if value < float(features.motion[index - 1]):
+            continue
+        if value < float(features.motion[index + 1]):
+            continue
+        baseline = features.baseline_at(float(features.times[index]))
+        if value > max(0.03, baseline * 1.5):
+            onsets.append(float(features.times[index]))
+    return onsets
+
+
+def _preferred_boundary(values, target, prefer_after):
+    """Pick a boundary close to target, preferring resolution over wind-up."""
+    if not values:
+        return None
+    values = sorted(set(float(value) for value in values))
+    after = [value for value in values if value >= target]
+    before = [value for value in values if value < target]
+    if prefer_after and after:
+        return after[0]
+    if not prefer_after and before:
+        return before[-1]
+    return min(values, key=lambda value: abs(value - target))
+
+
+def refine_media_boundary(features, timeline, start, end, min_len, max_len):
+    """Snap a wordless action window to nearby media onsets and resolutions."""
+    start = float(start)
+    end = float(end)
+    onsets = _audio_rises(
+        timeline, start - BOUNDARY_RADIUS, start + BOUNDARY_RADIUS)
+    onsets += _visual_onsets(
+        features, start - BOUNDARY_RADIUS, start + BOUNDARY_RADIUS)
+    onsets = [value for value in onsets
+              if start - BOUNDARY_RADIUS <= value <= start + BOUNDARY_RADIUS]
+
+    candidate_start = start
+    if onsets:
+        chosen = min(onsets, key=lambda value: (
+            abs(value - start), value > start, value))
+        candidate_start = max(start - BOUNDARY_RADIUS,
+                              min(start + BOUNDARY_RADIUS, chosen - 0.10))
+
+    resolutions = []
+    if timeline is not None and len(timeline.rms):
+        resolutions.extend(_local_extreme_times(
+            np.arange(len(timeline.rms), dtype=np.float64), timeline.rms,
+            end - BOUNDARY_RADIUS, end + BOUNDARY_RADIUS, mode="min"))
+        resolutions.append(timeline.trough_near(end, radius=BOUNDARY_RADIUS))
+    if features is not None and len(features.times):
+        resolutions.extend(_local_extreme_times(
+            features.times, features.motion, end - BOUNDARY_RADIUS,
+            end + BOUNDARY_RADIUS, mode="min"))
+        resolutions.extend([float(features.times[index])
+                            for index in np.flatnonzero(
+                                (features.times >= end - BOUNDARY_RADIUS)
+                                & (features.times <= end + BOUNDARY_RADIUS))
+                            if features.cut[index]])
+        peak = visual_peak_second(features, start, end)
+        if peak is not None and peak <= end + BOUNDARY_RADIUS:
+            resolutions.append(min(end + BOUNDARY_RADIUS, float(peak) + 0.75))
+    resolutions = [value for value in resolutions
+                   if end - BOUNDARY_RADIUS <= value <= end + BOUNDARY_RADIUS]
+
+    candidate_end = end
+    if resolutions:
+        chosen = _preferred_boundary(resolutions, end, prefer_after=True)
+        if chosen is not None:
+            candidate_end = max(end - BOUNDARY_RADIUS,
+                                min(end + BOUNDARY_RADIUS, chosen + 0.10))
+
+    def valid(low_value, high_value):
+        return (high_value - low_value >= float(min_len) - 1e-9
+                and high_value - low_value <= float(max_len) + 1e-9
+                and high_value > low_value)
+
+    if valid(candidate_start, candidate_end):
+        return candidate_start, candidate_end
+    if valid(candidate_start, end):
+        return candidate_start, end
+    if valid(start, candidate_end):
+        return start, candidate_end
+    return start, end
+
+
+def visual_peak_second(features, start, end):
+    """Second of strongest motion inside a range, or None."""
+    if features is None or len(features.motion) == 0:
+        return None
+    mask = ((features.times >= float(start) - 1e-6)
+            & (features.times <= float(end) + 1e-6))
+    indices = np.flatnonzero(mask)
+    if len(indices) == 0:
+        return None
+    return float(features.times[indices[int(np.argmax(features.motion[indices]))]])
+
+
 # --------------------------------------------------------------- evidence math
 
 def visual_evidence(features, start, end):
