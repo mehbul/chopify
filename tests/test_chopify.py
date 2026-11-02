@@ -953,3 +953,131 @@ def test_wordless_flat_source_fails_clearly(tmp_path):
     workdir = wordless_workdir(tmp_path, tmp_path / "flat.mp4", 30.0)
     with pytest.raises(ValueError, match="No speech and no media evidence"):
         score_clips.run(workdir, min_score=8.0)
+
+
+def test_silent_audio_uses_visual_baseline_energy(workdir, monkeypatch):
+    import evidence
+    import visual
+    flat = evidence.features_from_samples(
+        np.full(evidence.SAMPLE_RATE * 5, 0.001, dtype=np.float32))
+    monkeypatch.setattr(evidence, "load_audio_timeline", lambda *a, **k: flat)
+    monkeypatch.setattr(
+        visual, "sample_baseline",
+        lambda *a, **k: visual.VisualBaseline(0.8, 0.9, 20.0, 0.1, 12))
+    data = json.loads((workdir / "transcript.json").read_text())
+    (timeline, profile, energy, density, audio_usable,
+     baseline) = score_clips.source_evidence(workdir, data)
+    assert timeline is flat
+    assert audio_usable is False
+    assert baseline is not None
+    assert baseline.value == pytest.approx(0.8)
+    assert energy > 0.5
+    assert profile == "gameplay/action"
+
+
+def test_silent_audio_discovery_marks_audio_unavailable(workdir, monkeypatch):
+    import evidence
+    import visual
+    flat = evidence.features_from_samples(
+        np.full(evidence.SAMPLE_RATE * 5, 0.001, dtype=np.float32))
+    monkeypatch.setattr(evidence, "load_audio_timeline", lambda *a, **k: flat)
+    monkeypatch.setattr(
+        visual, "sample_baseline",
+        lambda *a, **k: visual.VisualBaseline(0.8, 0.9, 20.0, 0.1, 12))
+    score_clips.run(workdir, min_score=0, min_len=4, max_len=20)
+    selection = json.loads((workdir / "selection.json").read_text())
+    assert selection["evidence_available"] == {"audio": False, "visual": True}
+    candidates = json.loads(
+        (workdir / "candidates.json").read_text())["candidates"]
+    assert candidates
+    assert all(item["evidence"]["audio"] is None for item in candidates)
+
+
+def synthetic_action_features(start=0.0, duration=20.0):
+    import visual
+    times = np.arange(start, start + duration, 1.0 / visual.SAMPLE_FPS,
+                      dtype=np.float64)
+    relative = times - start
+    motion = np.full(len(times), 0.03, dtype=np.float32)
+    ramp = (relative >= 4.0) & (relative < 8.0)
+    motion[ramp] = np.linspace(0.10, 0.80, int(ramp.sum()))
+    peak = (relative >= 8.0) & (relative < 11.0)
+    motion[peak] = 0.80
+    decay = (relative >= 11.0) & (relative < 15.0)
+    motion[decay] = np.linspace(0.80, 0.05, int(decay.sum()))
+    change = np.full(len(times), 0.03, dtype=np.float32)
+    event = (relative >= 8.0) & (relative < 13.0)
+    change[event] = 0.50
+    cut = np.zeros(len(times), dtype=bool)
+    cut[np.flatnonzero(np.abs(relative - 8.0) < 1e-9)] = True
+    return visual.VisualFeatures(
+        start=start, end=start + duration, times=times, motion=motion,
+        cut=cut, change=change, center_change=change.copy(),
+        face=np.zeros(len(times), dtype=bool),
+        face_motion=np.zeros(len(times), dtype=np.float32))
+
+
+def flat_action_features(start=0.0, duration=20.0):
+    import visual
+    times = np.arange(start, start + duration, 1.0 / visual.SAMPLE_FPS,
+                      dtype=np.float64)
+    count = len(times)
+    return visual.VisualFeatures(
+        start=start, end=start + duration, times=times,
+        motion=np.full(count, 0.03, dtype=np.float32),
+        cut=np.zeros(count, dtype=bool),
+        change=np.full(count, 0.03, dtype=np.float32),
+        center_change=np.full(count, 0.03, dtype=np.float32),
+        face=np.zeros(count, dtype=bool),
+        face_motion=np.zeros(count, dtype=np.float32))
+
+
+def test_wordless_silent_source_uses_visual_evidence(tmp_path, monkeypatch):
+    import visual
+    source = tmp_path / "silent.mp4"
+    source.write_bytes(b"x")
+    wd = wordless_workdir(tmp_path, source, 20.0)
+    monkeypatch.setattr(
+        visual, "sample_baseline",
+        lambda *a, **k: visual.VisualBaseline(0.7, 0.8, 0.0, 0.0, 4))
+    monkeypatch.setattr(
+        visual, "load_or_analyze",
+        lambda *a, **k: [synthetic_action_features(0.0, 20.0)])
+    segs, _ = score_clips.run(
+        wd, min_score=8.0, min_len=5, max_len=20, preferred_len=15)
+    assert segs
+    assert all(item["evidence"]["audio"] is None for item in segs)
+    assert any(item["evidence"]["visual"] is not None for item in segs)
+    selection = json.loads((wd / "selection.json").read_text())
+    assert selection["evidence_available"] == {"audio": False, "visual": True}
+    assert selection["visual_ranges"] >= 1
+    assert selection["visual_sections"] == 1
+    assert selection["visual_baseline"]["value"] == pytest.approx(0.7)
+    candidates = json.loads((wd / "candidates.json").read_text())
+    assert candidates["visual_baseline"]["value"] == pytest.approx(0.7)
+
+
+def test_silent_flat_source_fails_without_visual_evidence(tmp_path, monkeypatch):
+    import visual
+    source = tmp_path / "flat.mp4"
+    source.write_bytes(b"x")
+    wd = wordless_workdir(tmp_path, source, 20.0)
+    monkeypatch.setattr(visual, "sample_baseline", lambda *a, **k: None)
+    with pytest.raises(ValueError, match="No speech and no media evidence"):
+        score_clips.run(wd, min_score=8.0)
+
+
+def test_flat_visual_action_cannot_pass_eight(tmp_path, monkeypatch):
+    import visual
+    source = tmp_path / "flat.mp4"
+    source.write_bytes(b"x")
+    wd = wordless_workdir(tmp_path, source, 20.0)
+    monkeypatch.setattr(
+        visual, "sample_baseline",
+        lambda *a, **k: visual.VisualBaseline(0.7, 0.8, 0.0, 0.0, 4))
+    monkeypatch.setattr(
+        visual, "load_or_analyze",
+        lambda *a, **k: [flat_action_features(0.0, 20.0)])
+    segs, _ = score_clips.run(
+        wd, min_score=8.0, min_len=5, max_len=20, preferred_len=15)
+    assert segs == []

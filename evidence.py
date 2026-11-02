@@ -382,6 +382,13 @@ def load_audio_timeline(source, workdir, identity=None):
 
 # ------------------------------------------------------------- evidence math
 
+def timeline_has_signal(timeline):
+    """False for a flat or missing audio timeline; silent audio is unusable."""
+    if timeline is None or len(timeline.rms) == 0:
+        return False
+    return timeline.variability >= 0.02 or timeline.burst_rate > 0
+
+
 PROFILE_FLOORS = {"talk": 0.20, "mixed": 0.35, "gameplay/action": 0.60}
 PROFILE_BANDS = {"talk": (45, 180), "mixed": (30, 120),
                  "gameplay/action": (15, 60)}
