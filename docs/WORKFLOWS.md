@@ -252,7 +252,7 @@ The score is an editing suggestion, not a prediction or guarantee of virality.
 - If nothing passes, the result is an empty clip list plus the real score range.
   Chopify never adds a fallback clip.
 
-### Audio evidence and speech-sparse sources
+### Audio and visual evidence for sparse sources
 
 Audio evidence runs locally. A one-time ffmpeg decode builds a 1 Hz timeline
 (loudness, peaks, spectral flux, zero-crossing rate, high-band ratio, and burst
@@ -267,13 +267,35 @@ It never changes the user-facing 8.0 default or the minimum you choose.
   weight, so gameplay and streams with little commentary can pass on strong
   audio events.
 - A wordless source uses audio peaks as event seeds and the 7.0 text floor.
-  Varying tracks without a sharp peak fall back to a grid of action seeds.
-  Hooks identify `event at 83s` or `action at 83s`; they never claim a semantic
-  event that was not detected.
-- A flat source with no words and no media evidence stops with
+  A usable peakless track or a varying visual baseline falls back to a grid of
+  action seeds. Hooks identify `event at 83s` or `action at 83s`; they never
+  claim a semantic event that was not detected.
+- A flat source with no words and no usable media evidence stops with
   `No speech and no media evidence; this source cannot be scored.`
 - Missing or unreadable sources still score from text with neutral evidence.
-- Visual evidence is Phase 2B. Phase 2A is audio-only.
+
+### Visual evidence and silent gameplay
+
+Visual evidence also runs locally. A cached 2 fps decode at 160x90 feeds OpenCV
+motion, scene/UI change, face presence, event-arc, and boundary measurements.
+The whole-source baseline is up to 12 five-second samples cached as
+`visual_baseline.json`; shortlisted padded ranges are cached under
+`visual_sections/` by source identity and range. Frames never leave the machine.
+
+- A clip whose event arc stays below 0.30 is capped at 6.0, so static or flat
+  footage cannot pass on motion noise.
+- Facecam is neutral when no consistent face region exists.
+- Silent audio is unavailable, not zero. Wordless and muted gameplay uses
+  visual seeds and visual-only evidence, so no-commentary PC-game VODs and
+  streams can pass on action alone.
+- Spoken candidates keep sentence boundaries. Wordless candidates may move each
+  boundary up to 1.5 seconds to the nearest action onset or quiet resolution,
+  and only when the combined media evidence improves.
+- Evidence blends 60% audio and 40% visual when both are usable; one modality is
+  shrunk toward neutral. If visual extraction fails, scoring falls back to audio
+  and text.
+- `selection.json` also reports `visual_baseline`, `visual_ranges`,
+  `visual_sections`, and any visual warnings.
 
 Candidates and passing segments carry an `evidence` object. `selection.json`
 also reports `evidence_available` and the internal profile.

@@ -31,6 +31,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   windows.
 - Action-only and speech-sparse clip discovery using audio event seeds, grid
   seeds for varying tracks without peaks, and a clear failure for flat sources.
+- Fully local visual evidence from cached 2 fps analysis: motion spikes,
+  scene/UI changes, facecam presence, action arcs, and boundary quiet, plus a
+  sparse whole-source baseline.
+- Silent and no-commentary gameplay, PC-game, and stream support: flat audio is
+  treated as unavailable so visual action can score on its own.
+- Visual shortlisting before frame decoding, visual-only seeds for silent
+  footage, a 6.0 cap for flat action windows, and evidence-checked boundary
+  refinement.
+- Visual diagnostics in `candidates.json` and `selection.json`:
+  `visual_baseline`, `visual_ranges`, `visual_sections`, and warnings.
 - `evidence` fields in `candidates.json` and `segments.json`, plus
   `evidence_available` and profile metadata in `selection.json`.
 - Guided CLI prompts for minimum score and preferred length, plus `--no-input`
@@ -54,6 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Default clip range is 15-300 seconds (was 20-75).
 - Audio evidence adjusts the calibrated text score through the source profile
   and evidence weight; content profiles never change the user-facing threshold.
+- Combined audio and visual evidence uses 60/40 weighting; one modality is
+  shrunk toward neutral, and text remains the final fallback.
+- Discovery cache keys include the visual feature version, so an analysis
+  upgrade invalidates only affected work.
 - Discovery and selection are cached separately, so changing the score
   re-filters without rescanning the transcript.
 - Matching successful stages resume by default; `--no-resume` forces processing.

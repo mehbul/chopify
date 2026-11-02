@@ -117,28 +117,54 @@ python chopify.py "podcast.mp4" --action all
 range diagnostics); `segments.json` stays the editable render contract used by
 the CLI and Studio.
 
-### Audio evidence and action-only sources
+### Audio and visual evidence for sparse sources
 
-Clip discovery also listens to the source. A single local ffmpeg pass builds a
-1 Hz audio timeline (loudness, peaks, spectral flux, and transients), caches it
-as `audio_features.npz` beside the transcript, and reuses it on later prepares.
-Only candidate ranges are scored against that timeline; no audio is uploaded.
+Clip discovery also listens to and watches the source. A single local ffmpeg
+pass builds a 1 Hz audio timeline (loudness, peaks, spectral flux, and
+transients), caches it as `audio_features.npz` beside the transcript, and reuses
+it on later prepares. Only candidate ranges are scored against that timeline; no
+audio is uploaded.
 
 The engine derives an internal profile (`talk`, `mixed`, or `gameplay/action`)
-from speech density and audio variation. The profile changes duration tie-breaks,
-evidence weights, and evidence floors. It never changes your minimum score.
+from speech density, audio variation, and visual activity. The profile changes
+duration tie-breaks, evidence weights, and evidence floors. It never changes your
+minimum score.
 
-- Speech-sparse clips use a 7.0 text floor and stronger audio weighting. This
+- Speech-sparse clips use a 7.0 text floor and stronger evidence weighting. This
   covers gameplay, streams, and videos with little commentary.
 - A source with no transcript words uses detected audio peaks as event seeds,
   with evenly spaced action seeds as a fallback when the track varies without a
   sharp peak. Hooks say `event at 42s`, never a guessed semantic event.
-- A flat source with no words and no usable media evidence fails with
+- A source with no words, no audio signal, and a varying picture uses evenly
+  spaced visual seeds and is scored from visual evidence alone.
+- A flat source with no words and no usable audio or visual evidence fails with
   `No speech and no media evidence; this source cannot be scored.`
 - Missing or unreadable video files still fall back to transcript-only scoring,
   so existing projects keep working.
-- Visual evidence (motion, cuts, and faces) arrives in Phase 2B. Audio-only
-  sources are fully supported now.
+
+### Visual evidence and silent gameplay
+
+Visual evidence runs locally. A cached ffmpeg decode samples 2 frames per
+second at 160x90, and OpenCV measures motion, scene and UI changes, face
+presence, event arcs, and boundary quiet. Only the sparse baseline samples (up
+to 12 five-second windows) and shortlisted padded candidate ranges are decoded;
+results are cached by source identity and range under `visual_sections/`. The
+whole-source baseline is cached as `visual_baseline.json`. No frames are
+uploaded, and later prepares reuse the cache.
+
+- Visual scoring rewards a motion spike, a scene or UI change, a visible
+  facecam, a complete action arc, and quiet boundaries.
+- A window whose action arc stays below 0.30 is capped at 6.0, so a static
+  screen cannot pass on motion noise alone.
+- Facecam stays neutral when the source has no consistent face region.
+- Spoken clips keep sentence boundaries. For wordless clips, each boundary can
+  move up to 1.5 seconds to the nearest action onset or quiet resolution, and
+  only when the combined evidence improves.
+- Silent audio is treated as unavailable, not as a zero. Silent gameplay and
+  no-commentary PC-game footage can pass from visual evidence alone.
+- With both modalities usable, evidence blends 60% audio and 40% visual. A
+  single modality is pulled toward neutral. Visual failure falls back to audio,
+  then text; if neither modality is usable, scoring uses text alone.
 
 The score is still an editing suggestion, not a prediction of virality.
 
