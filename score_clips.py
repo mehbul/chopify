@@ -26,6 +26,7 @@ import re
 import math
 import json
 import bisect
+import hashlib
 import argparse
 import urllib.request
 from pathlib import Path
@@ -34,6 +35,10 @@ import evidence
 import visual
 
 OLLAMA_HOST = "http://localhost:11434"
+
+LONG_SOURCE_SECONDS = 7200
+BLOCK_SECONDS = 1800
+BLOCK_VERSION = 1
 
 BASE_LADDER = (15, 30, 45, 60, 90, 120, 180, 300)
 DURATION_HELP = "Use seconds or a duration like 45s, 2m, or 1m30s (5s to 1h)."
@@ -723,6 +728,127 @@ def discover_candidates(sentences, min_len=15, max_len=300,
     return candidates, stats
 
 
+def _transcript_identity(workdir):
+    """Hash transcript bytes so edited words invalidate block caches."""
+    if not workdir:
+        return ""
+    path = Path(workdir) / "transcript.json"
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError:
+        return ""
+    return digest.hexdigest()
+
+
+def _block_key(identity, min_len, max_len, preferred_len, band):
+    return hashlib.sha256(json.dumps([
+        BLOCK_VERSION, identity, float(min_len), float(max_len),
+        None if preferred_len is None else float(preferred_len),
+        list(band), evidence.EVIDENCE_VERSION, visual.FEATURE_VERSION,
+    ]).encode("utf-8")).hexdigest()
+
+
+def _block_part_matches(part, scan_key, index, start, end):
+    if not isinstance(part, dict):
+        return False
+    if part.get("version") != BLOCK_VERSION or part.get("scan_key") != scan_key:
+        return False
+    if part.get("index") != index:
+        return False
+    try:
+        if abs(float(part.get("start")) - float(start)) > 1e-3:
+            return False
+        if abs(float(part.get("end")) - float(end)) > 1e-3:
+            return False
+    except (TypeError, ValueError):
+        return False
+    return isinstance(part.get("candidates"), list)
+
+
+def discover_blocks(sentences, min_len, max_len, preferred_len=None,
+                    band=(30, 120), duration=None, workdir=None,
+                    progress=None):
+    """Scan 30-minute ownership blocks and merge candidates in source order.
+
+    Each block owns seeds starting inside it, while reading up to ``max_len``
+    seconds of context beyond its end so windows never stop at the boundary.
+    Completed blocks cache as ``candidates.partNNN.json``.
+    """
+    if min_len > max_len:
+        raise ValueError("Minimum clip length cannot exceed maximum clip length.")
+    empty = {"seeds": 0, "windows_scanned": 0, "source_duration": 0.0,
+             "content_profile": "mixed", "source_energy": 0.5,
+             "blocks": 0, "block_scan": True}
+    if not sentences:
+        return [], empty
+
+    source_duration = float(
+        duration if duration is not None else sentences[-1]["end"])
+    starts = [float(item["start"]) for item in sentences]
+    identity = _transcript_identity(workdir)
+    scan_key = _block_key(identity, min_len, max_len, preferred_len, band)
+
+    bounds = []
+    position = 0.0
+    while position < source_duration:
+        block_end = min(source_duration, position + BLOCK_SECONDS)
+        bounds.append((len(bounds), position, block_end))
+        position = block_end
+
+    candidates = []
+    seeds = 0
+    windows_scanned = 0
+    for done, (index, block_start, block_end) in enumerate(bounds, 1):
+        part_path = (Path(workdir) / f"candidates.part{index:03d}.json"
+                     if workdir else None)
+        part = None
+        if part_path is not None and part_path.exists():
+            try:
+                part = json.loads(part_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                part = None
+        if not _block_part_matches(part, scan_key, index,
+                                   block_start, block_end):
+            first = bisect.bisect_left(starts, block_start)
+            owned_end = bisect.bisect_left(starts, block_end)
+            context_end = bisect.bisect_left(starts, block_end + max_len)
+            owned_count = max(0, owned_end - first)
+            local, part_stats = discover_candidates(
+                sentences[first:context_end], min_len, max_len,
+                preferred_len=preferred_len, band=band,
+                seed_indices=list(range(owned_count)))
+            for item in local:
+                if item.get("seed_index") is not None:
+                    item["seed_index"] += first
+            part = {"version": BLOCK_VERSION, "scan_key": scan_key,
+                    "index": index, "start": block_start,
+                    "end": block_end, "candidates": local,
+                    "stats": part_stats}
+            if part_path is not None:
+                _write_json(part_path, part)
+        candidates.extend(part["candidates"])
+        part_stats = part.get("stats") or {}
+        seeds += int(part_stats.get("seeds") or 0)
+        windows_scanned += int(part_stats.get("windows_scanned") or 0)
+        if progress:
+            progress("blocks", done, len(bounds))
+
+    candidates.sort(key=lambda item: (item["start"], item["end"]))
+    stats = {
+        "seeds": seeds,
+        "windows_scanned": windows_scanned,
+        "source_duration": source_duration,
+        "content_profile": "mixed",
+        "source_energy": 0.5,
+        "blocks": len(bounds),
+        "block_scan": True,
+    }
+    return candidates, stats
+
+
 def overlap_ratio(first, second):
     """Overlap divided by the shorter clip duration; 0 when they do not touch."""
     overlap = max(0.0, min(first["end"], second["end"])
@@ -1401,9 +1527,17 @@ def discover(workdir, min_len=15, max_len=300, preferred_len=None,
     else:
         print(f"Transcript: {len(sentences)} sentences over "
               f"{duration or 0:.0f}s", flush=True)
-        candidates, stats = discover_candidates(
-            sentences, min_len, max_len, preferred_len=preferred_len,
-            band=effective_band, progress=progress)
+        if duration >= LONG_SOURCE_SECONDS:
+            print(f"Long source: scanning {BLOCK_SECONDS // 60}-minute blocks",
+                  flush=True)
+            candidates, stats = discover_blocks(
+                sentences, min_len, max_len, preferred_len=preferred_len,
+                band=effective_band, duration=duration, workdir=workdir,
+                progress=progress)
+        else:
+            candidates, stats = discover_candidates(
+                sentences, min_len, max_len, preferred_len=preferred_len,
+                band=effective_band, progress=progress)
         candidates = attach_audio_evidence(
             candidates, usable_timeline, profile, energy)
 
