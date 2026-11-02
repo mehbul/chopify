@@ -12,6 +12,7 @@ import render_clips
 import score_clips
 import evidence
 import visual
+import ingest
 import branding
 from captions import update_transcript
 
@@ -192,32 +193,131 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
     if action not in {"all", "prepare", "render"}:
         raise ValueError("Unknown project action.")
     def stage(name):
-        state.update(status="running", stage=name, error=None)
+        state.update(status="running", stage=name, error=None,
+                     progress={"stage": name, "done": 0, "total": 0,
+                               "detail": ""})
         save_project(path, state)
         print(f"[{state['id']}] {name}", flush=True)
         if progress:
             progress(name)
+
+    def transcribe_progress(done, total):
+        state["progress"] = {"stage": "transcribe", "done": int(done),
+                             "total": int(total),
+                             "detail": f"chunk {done}/{total}"}
+        save_project(path, state)
+
     try:
         if action in {"all", "prepare"}:
             stage("source")
             source_input = state["source"]
             local = Path(source_input).expanduser()
+            is_url = ingest.is_url(source_input)
+            if not is_url and not local.is_file():
+                raise ValueError(
+                    f"Video file does not exist or URL is invalid: {source_input}")
+            if not is_url and local.suffix.lower() not in ingest.VIDEO_EXTS:
+                raise ValueError(
+                    "Use a video file: MP4, MKV, WebM, MOV, M4V or AVI.")
             identity = file_identity(local) if local.is_file() else source_input
             source_key = digest(identity)
+            cached_meta = (resume
+                           and state["cache"].get("source_meta") == source_key
+                           and isinstance(state.get("source_meta"), dict))
+            if cached_meta:
+                meta = state["source_meta"]
+            else:
+                meta = ingest.probe_source(source_input)
+                meta.pop("formats", None)
+                meta = {**meta, "long": ingest.is_long_source(meta)}
+                state["source_meta"] = meta
+                state["cache"]["source_meta"] = source_key
+                save_project(path, state)
+            long = bool(meta.get("long", ingest.is_long_source(meta)))
+
             source = Path(state.get("video", "__missing__"))
-            if not resume or state["cache"].get("source") != source_key or not source.is_file():
-                source = dt.resolve_source(source_input, path)
+            media_kind = str(meta.get("media_kind") or "")
+            render_from_sections = bool(meta.get("render_from_sections", False))
+            if (not resume or state["cache"].get("source") != source_key
+                    or not source.is_file()):
+                if is_url and long:
+                    ingest.check_disk(path, None)
+                    source, media_kind = ingest.download_discovery(
+                        source_input, path, meta)
+                    render_from_sections = True
+                elif is_url:
+                    ingest.check_disk(path, meta.get("estimated_size"))
+                    source = dt.resolve_source(source_input, path)
+                    media_kind = "video"
+                    render_from_sections = False
+                else:
+                    source = dt.resolve_source(source_input, path)
+                    media_kind = "video"
+                    render_from_sections = False
+                if not media_kind:
+                    media_kind = ("audio"
+                                  if source.suffix.lower() in ingest.AUDIO_EXTS
+                                  else "video")
                 state["video"] = str(source)
                 state["cache"]["source"] = source_key
+                state["cache"]["source_media"] = digest(file_identity(source))
+                meta = {**meta, "long": long, "media_kind": media_kind,
+                        "render_from_sections": render_from_sections}
+                state["source_meta"] = meta
                 save_project(path, state)
+            else:
+                if not media_kind:
+                    media_kind = ("audio"
+                                  if source.suffix.lower() in ingest.AUDIO_EXTS
+                                  else "video")
+                render_from_sections = bool(
+                    render_from_sections and is_url and long)
+                meta = {**meta, "long": long, "media_kind": media_kind,
+                        "render_from_sections": render_from_sections}
+                state["source_meta"] = meta
+
             stage("transcribe")
-            transcript_key = digest([file_identity(source), options["whisper_model"], options["device"]])
+            transcript_key = digest([
+                dt.TRANSCRIPT_VERSION, file_identity(source),
+                options["whisper_model"], options["device"], bool(long),
+                media_kind, bool(render_from_sections), source_input])
             transcript_path = path / "transcript.json"
-            if not resume or state["cache"].get("transcript") != transcript_key or not transcript_path.exists():
-                dt.transcribe(source, path, options["whisper_model"], options["device"],
-                              "int8" if options["device"] == "cpu" else "default")
+            if (not resume or state["cache"].get("transcript") != transcript_key
+                    or not transcript_path.exists()):
+                duration = meta.get("duration")
+                if duration is None:
+                    try:
+                        duration = ingest.probe_source(
+                            str(source)).get("duration")
+                    except (OSError, ValueError):
+                        duration = None
+                media_only = (is_url and long and media_kind == "video"
+                              and meta.get("has_audio") is False)
+                if media_only and not duration:
+                    raise ValueError(
+                        "Cannot determine the duration of the silent source.")
+                source_identity = file_identity(source)
+                if media_only:
+                    dt.write_media_transcript(
+                        source, path, duration, source=source_input,
+                        media_kind=media_kind,
+                        render_from_sections=render_from_sections,
+                        identity=source_identity)
+                else:
+                    dt.transcribe(
+                        source, path, options["whisper_model"],
+                        options["device"],
+                        "int8" if options["device"] == "cpu" else "default",
+                        duration=duration if long else None,
+                        chunked=bool(long), source=source_input,
+                        media_kind=media_kind,
+                        render_from_sections=render_from_sections,
+                        identity=source_identity,
+                        progress=transcribe_progress)
                 state["cache"]["transcript"] = transcript_key
-                state["source_identity"] = file_identity(source)
+                state["source_identity"] = source_identity
+                state["progress"] = {"stage": "transcribe", "done": 1,
+                                     "total": 1, "detail": "complete"}
                 save_project(path, state)
             stage("discover")
             data = read_json(transcript_path)

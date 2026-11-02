@@ -94,7 +94,7 @@ def test_resume_reuses_stages_and_invalidates_changed_settings(tmp_path, monkeyp
     project = projects.create_project(tmp_path / "projects", str(source), {"min_len": 1})
     path = projects.project_path(tmp_path / "projects", project["id"])
     calls = []
-    def transcribe(video, workdir, *args):
+    def transcribe(video, workdir, *args, **kwargs):
         calls.append("transcribe")
         data = transcript()
         data["video"] = str(video)
@@ -116,6 +116,10 @@ def test_resume_reuses_stages_and_invalidates_changed_settings(tmp_path, monkeyp
             {"score_min": 5, "score_max": 5, "passing": 1}))
         return segments, "heuristic"
     monkeypatch.setattr(projects.dt, "transcribe", transcribe)
+    monkeypatch.setattr(projects.ingest, "probe_source", lambda source: {
+        "source": str(source), "url": False, "duration": 10.0, "size": 5,
+        "estimated_size": 5, "width": 0, "height": 0,
+        "has_audio": True, "has_video": True})
     monkeypatch.setattr(projects.score_clips, "discover", discover)
     monkeypatch.setattr(projects.score_clips, "select", select)
     projects.run_project(path, action="prepare")
