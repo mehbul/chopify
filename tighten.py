@@ -92,8 +92,12 @@ def _shift(w, clip_start, keeps):
     return {"word": w["word"], "start": round(s, 3), "end": round(e, 3)}
 
 
-def apply_cuts(source, keeps, clip_start, out_path, crf=18):
-    """Render the keep-ranges to one concatenated file via ffmpeg."""
+def apply_cuts(source, keeps, clip_start, out_path, crf=18, source_offset=0.0):
+    """Render the keep-ranges to one concatenated file via ffmpeg.
+
+    ``clip_start`` stays a global source time; keeps are cut from the local
+    section whose first frame is ``source_offset``.
+    """
     out_path = Path(out_path)
     tmp = out_path.parent / "_tight_parts"
     tmp.mkdir(parents=True, exist_ok=True)
@@ -101,8 +105,9 @@ def apply_cuts(source, keeps, clip_start, out_path, crf=18):
     try:
         for i, (a, b) in enumerate(keeps):
             part = tmp / f"part_{i:03d}.mp4"
+            seek = max(0.0, clip_start + a - float(source_offset))
             subprocess.run(
-                ["ffmpeg", "-y", "-ss", f"{clip_start + a:.3f}", "-i", str(source),
+                ["ffmpeg", "-y", "-ss", f"{seek:.3f}", "-i", str(source),
                  "-t", f"{b - a:.3f}", "-c:v", "libx264", "-preset", "veryfast",
                  "-crf", str(crf), "-c:a", "aac", "-b:a", "160k", str(part)],
                 check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

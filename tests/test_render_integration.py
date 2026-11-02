@@ -115,3 +115,28 @@ def test_cli_render_preserves_project_settings_and_copies_exports(source, tmp_pa
     assert result.returncode == 0, result.stderr + result.stdout
     assert projects.read_project(path)["options"]["layout"] == "split"
     assert len(list(export.glob("*.mp4"))) == len(list(export.glob("*.srt"))) == 1
+
+
+def test_render_from_section_offset_reads_local_video_not_source_start(tmp_path):
+    source = tmp_path / "sections.mp4"
+    subprocess.run([
+        "ffmpeg", "-v", "error", "-y",
+        "-f", "lavfi", "-i", "color=c=green:s=320x180:d=3",
+        "-f", "lavfi", "-i", "color=c=red:s=320x180:d=3",
+        "-f", "lavfi", "-i", "sine=frequency=440:duration=6",
+        "-filter_complex", "[0:v][1:v]concat=n=2:v=1:a=0[v]",
+        "-map", "[v]", "-map", "2:a", "-c:v", "libx264",
+        "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(source)],
+        check=True)
+    out = render_clips.render(
+        {"id": "001", "start": 3.5, "end": 5.0, "hook": "offset section"},
+        [{"word": "hello", "start": 3.5, "end": 4.0}], source, 320, 180,
+        tmp_path, "16:9", out_dir=tmp_path / "render", preview=True,
+        source_offset=3.0)
+    frame = subprocess.run(
+        ["ffmpeg", "-v", "error", "-ss", "0.2", "-i", str(out),
+         "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+        capture_output=True, check=True).stdout
+    red, green = frame[0], frame[1]
+    assert green > 100 and red < 80
+    assert "00:00:00,000" in out.with_suffix(".srt").read_text()
