@@ -292,7 +292,7 @@ def transcribe_chunked(video, workdir, model_size, device, compute_type,
         if progress:
             progress(done, len(bounds))
 
-    merged = merge_transcript_parts(parts, total)
+    merged = merge_transcript_parts(parts, total, overlap=OVERLAP_SECONDS)
     transcript = {
         "video": str(video),
         "language": merged["language"],

@@ -140,3 +140,28 @@ def test_media_transcript_has_no_words(tmp_path):
     assert data["media_kind"] == "video"
     assert data["duration"] == 5400
     assert data["source"] == "https://example.com/muted"
+
+
+def test_chunked_transcription_merges_with_runtime_overlap(tmp_path, monkeypatch):
+    source = tmp_path / "audio.m4a"
+    source.write_bytes(b"audio")
+    monkeypatch.setattr(download_and_transcribe, "CHUNK_SECONDS", 10)
+    monkeypatch.setattr(download_and_transcribe, "OVERLAP_SECONDS", 4)
+    monkeypatch.setattr(download_and_transcribe, "_probe_duration",
+                        lambda path: 20.0)
+    monkeypatch.setattr(
+        download_and_transcribe, "_extract_chunk",
+        lambda source, start, end, path: Path(path).write_bytes(b"wav"))
+
+    class Model:
+        def transcribe(self, path, **kwargs):
+            return iter([FakeSegment(
+                2, 3, "hello",
+                [FakeWord("hello", 2.0, 3.0)])]), FakeInfo("en", 1.0)
+
+    monkeypatch.setattr(download_and_transcribe, "_load_model",
+                        lambda *args: Model())
+    download_and_transcribe.transcribe_chunked(
+        source, tmp_path, "tiny", "cpu", "int8", 20.0)
+    data = json.loads((tmp_path / "transcript.json").read_text(encoding="utf-8"))
+    assert [w["start"] for w in data["words"]] == [2.0, 12.0]
