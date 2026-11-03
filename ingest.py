@@ -200,6 +200,26 @@ def _remove_old(workdir, prefix):
                 pass
 
 
+def download_visual_discovery(url, workdir, runner=None):
+    """Download the lowest-resolution video for speechless visual discovery."""
+    run = runner or _run
+    workdir = Path(workdir)
+    workdir.mkdir(parents=True, exist_ok=True)
+    _remove_old(workdir, "discovery")
+    try:
+        run([
+            sys.executable, "-m", "yt_dlp",
+            "-f", "worst[height<=360]/worst", "--no-playlist",
+            "-o", str(workdir / "discovery.%(ext)s"), url])
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise RuntimeError(
+            "Download failed: no video file produced.") from exc
+    video = _find_media(workdir, "discovery")
+    if video is None:
+        raise RuntimeError("Download failed: no video file produced.")
+    return video
+
+
 def download_discovery(url, workdir, meta=None, runner=None):
     """Download best audio, or a low-resolution video for silent URLs."""
     run = runner or _run
@@ -220,18 +240,7 @@ def download_discovery(url, workdir, meta=None, runner=None):
         if audio is not None:
             return audio, "audio"
 
-    try:
-        run([
-            sys.executable, "-m", "yt_dlp",
-            "-f", "worst[height<=360]/worst", "--no-playlist",
-            "-o", str(workdir / "discovery.%(ext)s"), url])
-    except (OSError, subprocess.SubprocessError) as exc:
-        raise RuntimeError(
-            "Download failed: no audio or video file produced.") from exc
-    video = _find_media(workdir, "discovery")
-    if video is None:
-        raise RuntimeError("Download failed: no audio or video file produced.")
-    return video, "video"
+    return download_visual_discovery(url, workdir, runner=run), "video"
 
 
 def download_section(url, start, end, out_path, quality=1080, runner=None):

@@ -28,7 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   or unknown duration use an audio-first probe and resumable ingest. Short
   sources keep the original single-pass workflow.
 - Long URLs download audio only, or lowest-resolution video when there is no
-  audio; local long files are read in place.
+  audio; an audio track with no speech also switches to the low-resolution video
+  so silent gameplay and streams can score from visual evidence. Local long files
+  are read in place.
+- Long-source Studio review: project detail exposes source metadata, progress,
+  per-clip render errors, and whether the full source is playable. Watch on a
+  long URL candidate queues a 480p preview from its downloaded section and plays
+  the result.
 - Resumable 30-minute transcription chunks with 30-second overlap merging and
   global word times (`transcript.partNNN.json`).
 - Resumable 30-minute discovery blocks with `max_len` boundary context
@@ -110,6 +116,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Identical clip titles cannot overwrite each other's project exports.
 - A failed long-source section records a per-clip error instead of discarding
   successful renders; remaining sections still render and retry later.
+- Long-source preview playback no longer draws the source caption overlay over
+  the already-rendered draft.
 
 ## [1.3.0] - 2026-09-06
 

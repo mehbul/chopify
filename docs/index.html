@@ -8,7 +8,7 @@
     </title>
     <meta
       name="description"
-      content="Turn recordings and YouTube videos into styled, captioned Shorts, Reels and TikTok clips locally. Free open-source dashboard, Caption Studio, SRT editing and podcast framing."
+      content="Turn recordings, YouTube videos, podcasts, streams and gameplay VODs of any length into styled, captioned Shorts, Reels and TikTok clips locally. Free open-source dashboard with audio/visual clip discovery, Caption Studio, SRT editing and podcast framing."
     />
     <meta name="robots" content="index,follow,max-image-preview:large" />
     <link rel="canonical" href="https://mehbul.github.io/chopify/" />
@@ -17,7 +17,7 @@
     <meta property="og:title" content="Chopify — your footage, your machine" />
     <meta
       property="og:description"
-      content="Free local video clipping with a review dashboard, editable and styled captions, SRT exports, branding, semantic search and podcast split-screen."
+      content="Free local video clipping for any-length recordings, podcasts, streams and gameplay VODs. Audio/visual clip discovery, review dashboard, editable and styled captions, SRT exports, branding, semantic search and podcast split-screen."
     />
     <meta property="og:url" content="https://mehbul.github.io/chopify/" />
     <meta
@@ -58,7 +58,7 @@
             "@id": "https://mehbul.github.io/chopify/#software",
             "name": "Chopify",
             "url": "https://mehbul.github.io/chopify/",
-            "description": "Free local video clipper with a browser dashboard, resumable batch projects, editable and styled captions, SRT exports, branding, semantic search, and podcast split-screen.",
+            "description": "Free local video clipper for any-length recordings, podcasts, streams and gameplay VODs, with audio/visual clip discovery, a browser dashboard, resumable batch projects, editable and styled captions, SRT exports, branding, semantic search, and podcast split-screen.",
             "applicationCategory": "MultimediaApplication",
             "operatingSystem": "Windows",
             "programmingLanguage": "Python",
@@ -80,6 +80,12 @@
             "featureList": [
               "Local browser dashboard",
               "Local video input",
+              "Any-length local and URL sources",
+              "Automatic long-source ingest and section rendering",
+              "Audio and visual clip evidence",
+              "Speech-sparse and no-commentary gameplay support",
+              "8.0+ adaptive clip selection",
+              "Long-source 480p section previews",
               "Resumable batch projects",
               "Caption editing and SRT export",
               "13-preset Caption Studio",
@@ -95,7 +101,7 @@
             "@id": "https://mehbul.github.io/chopify/#page",
             "url": "https://mehbul.github.io/chopify/",
             "name": "Chopify — Free Local AI Video Clipper",
-            "dateModified": "2026-10-31",
+            "dateModified": "2026-11-03",
             "inLanguage": "en",
             "mainEntity": {
               "@id": "https://mehbul.github.io/chopify/#software"
@@ -122,9 +128,10 @@
         </p>
         <h1>The good parts.<br /><em>Ready to share.</em></h1>
         <p class="lead">
-          Chopify turns long recordings and YouTube videos into captioned clips
-          for Shorts, Reels, and TikTok. Find moments, fix and style captions,
-          review drafts, and export—all locally.
+          Chopify turns podcasts, movies, streams, and gameplay VODs—local files
+          or YouTube links—into captioned clips for Shorts, Reels, and TikTok. It
+          reads the speech, listens for reactions, and watches for action, then
+          you review and export—all locally.
         </p>
         <div class="actions">
           <a class="button" href="#install">Open your cutting room ↗</a
@@ -170,7 +177,18 @@
             <p>
               See progress, watch candidate moments, adjust clip boundaries, and
               select your exports. Fast drafts help you review before the final
-              render.
+              render. For long URLs, Watch renders a 480p draft from just that
+              downloaded section.
+            </p>
+          </article>
+          <article>
+            <span class="tag">SELECTION</span>
+            <h3>Every clip that passes</h3>
+            <p>
+              Absolute 0-10 scoring returns every clip at 8.0 or higher by
+              default, with no fixed ten-clip cap. Length is chosen per moment
+              from a 15-300 second range; a preferred length is a soft hint, not
+              a hard cut.
             </p>
           </article>
           <article>
@@ -211,6 +229,16 @@
           </article>
           <article>
             <span class="tag">DISCOVERY</span>
+            <h3>Find more than words</h3>
+            <p>
+              Local audio energy and visual action evidence surface reactions,
+              impacts, scene changes, and gameplay moments. Speech-sparse and
+              no-commentary VODs can score from media evidence, with text as the
+              fallback when media evidence is unavailable.
+            </p>
+          </article>
+          <article>
+            <span class="tag">SEARCH</span>
             <h3>Find a topic by meaning</h3>
             <p>
               Use keywords, automatic scoring, or optional local Ollama
@@ -239,9 +267,11 @@
         </div>
         <p class="note">
           Scores guide editing decisions; they do not predict virality. Review
-          captions and clip boundaries. Caption Studio's overlay approximates the
-          exported libass render. Split-screen uses fixed centers, not speaker
-          recognition.
+          captions and clip boundaries. Speech-sparse and silent sources still
+          need usable audio variation or visible action. Hooks for wordless
+          footage describe timestamps, never guessed events. Caption Studio's
+          overlay approximates the exported libass render. Split-screen uses
+          fixed centers, not speaker recognition.
         </p>
       </section>
       <section id="install" class="install">
@@ -300,6 +330,29 @@ python -m venv .venv
           </p>
         </details>
         <details>
+          <summary>Does it work with gameplay VODs and videos without commentary?</summary>
+          <p>
+            Yes, when there is usable evidence. Chopify builds a local audio
+            timeline and samples the picture for motion, scene and UI changes,
+            faces, action arcs, and quiet boundaries. Speech-sparse clips use a
+            text floor and stronger evidence weighting. Silent no-commentary
+            gameplay can score from visual action alone; flat footage with no
+            speech and no media variation is reported instead of inventing a
+            clip.
+          </p>
+        </details>
+        <details>
+          <summary>Is there a duration limit?</summary>
+          <p>
+            No fixed ceiling. Sources of 2 hours or more, an 8 GB estimated
+            download, or unknown duration use the automatic long path:
+            audio-first ingest, 30-minute resumable transcription chunks,
+            30-minute discovery blocks, and section-only rendering. Local long
+            files are read in place. Long URL projects preview a candidate by
+            rendering a 480p draft from its downloaded section.
+          </p>
+        </details>
+        <details>
           <summary>Is Chopify an alternative to Opus Clip?</summary>
           <p>
             It is an option for creators who want clipping, captions and review
@@ -340,12 +393,14 @@ python -m venv .venv
         <details>
           <summary>What are the limitations?</summary>
           <p>
-            Speech recognition and caption timing need review. Caption Studio's
-            overlay approximates the exported libass render, and emoji glyphs
-            need a system emoji font. Heuristic cue lists are English-oriented.
-            GPU speech acceleration uses NVIDIA/CUDA; CPU works without it.
-            Split-screen uses fixed crop centers. Translation, dubbing,
-            scheduling, and social uploads are not included.
+            Speech recognition and caption timing need review. Speech-sparse and
+            silent sources need usable audio or visual evidence; scores do not
+            predict virality. Caption Studio's overlay approximates the exported
+            libass render, and emoji glyphs need a system emoji font. Heuristic
+            cue lists are English-oriented. GPU speech acceleration uses
+            NVIDIA/CUDA; CPU works without it. Split-screen uses fixed crop
+            centers. Translation, dubbing, scheduling, and social uploads are
+            not included.
           </p>
         </details>
       </section>

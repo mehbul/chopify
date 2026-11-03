@@ -77,6 +77,53 @@ def test_long_url_prepare_downloads_audio_and_transcribes_in_chunks(
     assert state["cache"]["source_media"]
 
 
+def test_long_url_audio_without_speech_switches_to_visual_discovery(
+        tmp_path, monkeypatch):
+    source = "https://example.com/podcast"
+    path = make_project(tmp_path, source)
+    monkeypatch.setattr(projects.ingest, "probe_source",
+                        lambda value: long_meta())
+    monkeypatch.setattr(projects.ingest, "is_long_source", lambda meta: True)
+    monkeypatch.setattr(projects.ingest, "check_disk", lambda *args: None)
+    audio = tmp_path / "audio.m4a"
+    audio.write_bytes(b"audio")
+    monkeypatch.setattr(
+        projects.ingest, "download_discovery",
+        lambda url, workdir, meta=None: (audio, "audio"))
+    visual = tmp_path / "discovery.mp4"
+    visual.write_bytes(b"video")
+    downloads = []
+    monkeypatch.setattr(
+        projects.ingest, "download_visual_discovery",
+        lambda url, workdir, runner=None: downloads.append((url, workdir)) or visual)
+
+    def transcribe(video, workdir, *args, **kwargs):
+        write_transcript(workdir, video, source, 9000, words=[],
+                         media_kind="audio", render_from_sections=True,
+                         chunked=True, chunks=5)
+
+    monkeypatch.setattr(projects.dt, "transcribe", transcribe)
+    stub_scoring(monkeypatch, path)
+    projects.run_project(path, action="prepare")
+
+    assert downloads == [(source, path)]
+    state = projects.read_project(path)
+    assert state["video"] == str(visual)
+    assert state["source_meta"]["media_kind"] == "video"
+    assert state["source_meta"]["discovery"] == str(visual)
+    assert state["source_meta"]["render_from_sections"] is True
+    assert state["cache"]["source_media"] == projects.digest(
+        projects.file_identity(visual))
+    data = projects.read_json(path / "transcript.json")
+    assert data["video"] == str(visual)
+    assert data["source"] == source
+    assert data["media_kind"] == "video"
+    assert state["cache"]["transcript"] == projects.digest([
+        projects.dt.TRANSCRIPT_VERSION, projects.file_identity(visual),
+        state["options"]["whisper_model"], state["options"]["device"],
+        True, "video", True, source])
+
+
 def test_long_local_file_transcribes_chunks_without_downloading(
         tmp_path, monkeypatch):
     source = tmp_path / "recording.mp4"

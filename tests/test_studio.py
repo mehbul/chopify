@@ -258,6 +258,76 @@ def test_project_detail_without_selection_is_empty(tmp_path):
     assert dashboard.project_detail(tmp_path, "abc123abc123")["selection"] == {}
 
 
+def test_project_detail_exposes_long_source_fields(tmp_path):
+    import dashboard
+    import projects
+    root = tmp_path / "projects"
+    path = root / "abc123abc123"
+    projects.init_project(path, "https://example.com/long", {},
+                          project_id="abc123abc123")
+    discovery = tmp_path / "discovery.mp4"
+    discovery.write_bytes(b"video")
+    state = projects.read_project(path)
+    state["video"] = str(discovery)
+    state["source_meta"] = {"duration": 9000, "long": True,
+                            "url": True, "media_kind": "audio",
+                            "render_from_sections": True}
+    state["progress"] = {"stage": "transcribe", "done": 3, "total": 5,
+                         "detail": "chunk 3/5"}
+    state["render_errors"] = [{"clip": "001", "error": "section failed"}]
+    projects.save_project(path, state)
+    (path / "transcript.json").write_text(json.dumps({
+        "video": str(discovery), "source": "https://example.com/long",
+        "duration": 9000.0, "words": [], "render_from_sections": True,
+    }), encoding="utf-8")
+
+    detail = dashboard.project_detail(root, "abc123abc123")
+    assert detail["source_meta"]["duration"] == 9000
+    assert detail["progress"]["done"] == 3
+    assert detail["render_errors"] == [
+        {"clip": "001", "error": "section failed"}]
+    assert detail["playable_source"] is False
+
+
+def test_project_detail_playable_source_requires_a_full_video(tmp_path):
+    import dashboard
+    import projects
+    root = tmp_path / "projects"
+    source = tmp_path / "source.mp4"
+    source.write_bytes(b"video")
+    path = root / "abc123abc123"
+    projects.init_project(path, str(source), {}, project_id="abc123abc123")
+    state = projects.read_project(path)
+    state["video"] = str(source)
+    projects.save_project(path, state)
+    (path / "transcript.json").write_text(json.dumps({
+        "video": str(source), "duration": 10.0, "words": [],
+    }), encoding="utf-8")
+
+    assert dashboard.project_detail(root, "abc123abc123")["playable_source"]
+    source.unlink()
+    assert not dashboard.project_detail(root, "abc123abc123")["playable_source"]
+
+
+def test_project_detail_section_projects_are_never_playable(tmp_path):
+    import dashboard
+    import projects
+    root = tmp_path / "projects"
+    discovery = tmp_path / "discovery.mp4"
+    discovery.write_bytes(b"video")
+    path = root / "abc123abc123"
+    projects.init_project(path, "https://example.com/long", {},
+                          project_id="abc123abc123")
+    state = projects.read_project(path)
+    state["video"] = str(discovery)
+    state["source_meta"] = {"long": True, "render_from_sections": True}
+    projects.save_project(path, state)
+    (path / "transcript.json").write_text(json.dumps({
+        "video": str(discovery), "duration": 9000.0, "words": [],
+    }), encoding="utf-8")
+    assert not dashboard.project_detail(root, "abc123abc123")["playable_source"]
+
+
 def test_settings_accept_null_cap_and_preferred_length():
     import projects
     options = projects.validate_options({

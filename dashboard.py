@@ -41,6 +41,20 @@ def project_detail(root, project_id):
         with (path / "job.log").open("rb") as log:
             log.seek(max(0, (path / "job.log").stat().st_size - 12000))
             data["log"] = log.read().decode("utf-8", errors="replace")
+    transcript = data.get("transcript") or {}
+    source_meta = state.get("source_meta") or {}
+    render_from_sections = bool(
+        source_meta.get("render_from_sections")
+        or transcript.get("render_from_sections"))
+    video = transcript.get("video") or state.get("video")
+    data.update({
+        "source_meta": source_meta,
+        "progress": state.get("progress") or {},
+        "render_errors": state.get("render_errors") or [],
+        "playable_source": bool(
+            not render_from_sections and video
+            and Path(video).is_file()),
+    })
     return data
 
 

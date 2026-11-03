@@ -16,6 +16,8 @@ const state = {
   captionKey: "",
   captionSerial: 0,
   captionPreset: "default",
+  previewFile: null,
+  pendingPreview: null,
 };
 const escapeHTML = (value) =>
   String(value ?? "").replace(
@@ -247,6 +249,8 @@ function updateCaptionOverlay(force = false) {
   if (
     !state.detail ||
     !state.detail.transcript ||
+    state.detail.playable_source === false ||
+    state.previewFile ||
     state.tab !== "captions" ||
     !style
   ) {
@@ -378,6 +382,8 @@ async function selectProject(id) {
   state.tab = "clips";
   state.captionDraft = null;
   state.captionKey = "";
+  state.previewFile = null;
+  state.pendingPreview = null;
   $("#new-view").hidden = true;
   $("#project-view").hidden = false;
   const detail = await api(`/api/projects/${id}`);
@@ -389,10 +395,20 @@ async function selectProject(id) {
   await refreshProjects();
 }
 function updateStatus(detail) {
+  const progress = detail.progress || {};
+  const total = Number(progress.total);
+  const progressText =
+    detail.busy && progress.stage && Number.isFinite(total) && total > 0
+      ? ` · ${progress.stage} ${Number(progress.done) || 0}/${total}`
+      : "";
   $("#status").textContent =
-    `${detail.project.status} · ${detail.project.stage}`;
-  $("#job-error").hidden = !detail.project.error;
-  $("#job-error").textContent = detail.project.error || "";
+    `${detail.project.status} · ${detail.project.stage}${progressText}`;
+  const errors = detail.render_errors || [];
+  const error =
+    detail.project.error ||
+    (errors.length ? `${errors.length} clip(s) failed to render.` : "");
+  $("#job-error").hidden = !error;
+  $("#job-error").textContent = error;
   $("#log").textContent = detail.log || "No job has run yet.";
   state.busy = detail.busy;
   for (const selector of [
@@ -514,11 +530,26 @@ function renderDetail() {
   $("#project-title").textContent = projectName(p.source);
   $("#project-source").textContent = p.source;
   const player = $("#source-player");
-  player.hidden = !detail.transcript;
-  $("#player-hint").hidden = !!detail.transcript;
-  const source = `/media/${p.id}/source`;
-  if (detail.transcript && player.getAttribute("src") !== source)
-    player.src = source;
+  const hint = $("#player-hint");
+  if (detail.playable_source) {
+    player.hidden = !detail.transcript;
+    hint.hidden = !!detail.transcript;
+    hint.textContent = "Prepare this project to preview the source.";
+    const source = `/media/${p.id}/source`;
+    if (detail.transcript && player.getAttribute("src") !== source)
+      player.src = source;
+  } else if (state.previewFile) {
+    player.hidden = false;
+    hint.hidden = true;
+    if (player.getAttribute("src") !== state.previewFile.url)
+      player.src = state.previewFile.url;
+  } else {
+    player.hidden = true;
+    hint.hidden = false;
+    hint.textContent = detail.transcript
+      ? "Long source: press Watch on a clip to render a 480p preview from a downloaded section."
+      : "Prepare this project to preview the source.";
+  }
   const form = $("#settings-form");
   for (const [key, value] of Object.entries(options)) {
     const input = form.elements.namedItem(key);
@@ -771,6 +802,53 @@ async function play(start, end = null) {
   player.currentTime = start;
   await player.play();
 }
+async function watchCandidate(index) {
+  const candidate = state.detail.candidates[index];
+  if (state.detail.playable_source) {
+    state.previewFile = null;
+    await play(candidate.start, candidate.end);
+    return;
+  }
+  if (state.busy || state.pendingPreview)
+    throw new Error("Wait for the current job to finish.");
+  const before = new Set(
+    state.detail.files
+      .filter((file) => file.kind === "previews" && file.name.endsWith(".mp4"))
+      .map((file) => file.name),
+  );
+  state.pendingPreview = { index, before };
+  state.previewFile = null;
+  renderDetail();
+  $("#player-hint").textContent =
+    "Rendering this clip from its downloaded source section…";
+  try {
+    await saveCandidates(false);
+    await api(`/api/projects/${state.id}/run`, {
+      action: "render",
+      preview: true,
+      pick: String(index + 1),
+    });
+  } catch (error) {
+    state.pendingPreview = null;
+    renderDetail();
+    throw error;
+  }
+  state.detail.busy = true;
+  state.detail.project.status = "queued";
+  state.detail.project.stage = "render";
+  updateStatus(state.detail);
+  notice("Rendering a 480p preview from a downloaded section…");
+  await refreshProjects();
+}
+function loadPreview(file) {
+  state.previewFile = file;
+  const player = $("#source-player");
+  player.src = file.url;
+  player.hidden = false;
+  $("#player-hint").hidden = true;
+  player.currentTime = 0;
+  player.play().catch(() => {});
+}
 $("#source-player").addEventListener("timeupdate", () => {
   if (stopAt !== null && $("#source-player").currentTime >= stopAt) {
     $("#source-player").pause();
@@ -793,8 +871,7 @@ $("#candidates").addEventListener(
   safe(async (event) => {
     const button = event.target.closest("[data-play]");
     if (button) {
-      const c = state.detail.candidates[Number(button.dataset.play)];
-      await play(c.start, c.end);
+      await watchCandidate(Number(button.dataset.play));
     }
   }),
 );
@@ -880,6 +957,10 @@ $("#caption-preview").addEventListener(
   "click",
   safe(async () => {
     if (!state.detail?.transcript) throw new Error("Prepare the project first.");
+    if (state.detail.playable_source === false)
+      throw new Error(
+        "Long sources have no full player. Use Watch on a clip to render and play its preview.",
+      );
     const candidates = state.detail.candidates;
     const selected = [...state.selected].sort((a, b) => a - b);
     const clip = candidates[(selected[0] || 1) - 1] || candidates[0];
@@ -924,15 +1005,52 @@ setInterval(async () => {
       const finished = !detail.busy;
       updateStatus(detail);
       if (finished) {
+        const pending = state.pendingPreview;
         state.detail = detail;
         state.words = structuredClone(detail.transcript?.words || []);
-        state.selected = new Set(detail.candidates.map((_, i) => i + 1));
-        state.candidatePage = 0;
+        if (!pending) {
+          state.selected = new Set(detail.candidates.map((_, i) => i + 1));
+          state.candidatePage = 0;
+        }
+        let match = null;
+        if (pending) {
+          const previews = detail.files.filter(
+            (file) => file.kind === "previews" && file.name.endsWith(".mp4"),
+          );
+          const fresh = previews.filter(
+            (file) => !pending.before.has(file.name),
+          );
+          const prefix = `${String(pending.index + 1).padStart(3, "0")}-`;
+          const failed =
+            !!detail.project.error || (detail.render_errors || []).length > 0;
+          match =
+            fresh.find((file) => file.name.startsWith(prefix)) ||
+            fresh[0] ||
+            (!failed
+              ? previews.find((file) => file.name.startsWith(prefix))
+              : null) ||
+            null;
+          state.pendingPreview = null;
+          state.previewFile = match;
+        }
         renderDetail();
-        notice(
-          detail.project.error || "Project ready for review.",
-          !!detail.project.error,
-        );
+        if (pending) {
+          if (match) {
+            loadPreview(match);
+            notice("Preview rendered from a downloaded source section.");
+          } else {
+            notice(
+              detail.project.error ||
+                "Preview finished, but no clip was produced.",
+              true,
+            );
+          }
+        } else {
+          notice(
+            detail.project.error || "Project ready for review.",
+            !!detail.project.error,
+          );
+        }
       }
     }
     $("#connection").textContent = "● Local session";

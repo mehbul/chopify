@@ -115,6 +115,28 @@ def test_download_discovery_falls_back_to_video(monkeypatch, tmp_path):
     assert path.name == "discovery.m4a"
 
 
+def test_download_visual_discovery_requests_lowest_video(monkeypatch, tmp_path):
+    captured = []
+
+    def run(cmd, **kwargs):
+        captured.append(cmd)
+        write_output(cmd)
+        return FakeResult()
+
+    monkeypatch.setattr(ingest, "_run", run)
+    path = ingest.download_visual_discovery(
+        "https://example.com/gameplay", tmp_path)
+    assert path.is_file()
+    assert captured[0][captured[0].index("-f") + 1] == "worst[height<=360]/worst"
+    assert captured[0][-1] == "https://example.com/gameplay"
+
+
+def test_download_visual_discovery_raises_when_no_video(monkeypatch, tmp_path):
+    monkeypatch.setattr(ingest, "_run", lambda cmd, **kw: FakeResult())
+    with pytest.raises(RuntimeError, match="no video file"):
+        ingest.download_visual_discovery("https://example.com/gameplay", tmp_path)
+
+
 def test_download_section_uses_accurate_cut_flags(monkeypatch, tmp_path):
     captured = []
 

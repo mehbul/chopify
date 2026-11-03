@@ -264,6 +264,8 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
                 state["cache"]["source_media"] = digest(file_identity(source))
                 meta = {**meta, "long": long, "media_kind": media_kind,
                         "render_from_sections": render_from_sections}
+                if is_url:
+                    meta["discovery"] = str(source)
                 state["source_meta"] = meta
                 save_project(path, state)
             else:
@@ -275,6 +277,8 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
                     render_from_sections and is_url and long)
                 meta = {**meta, "long": long, "media_kind": media_kind,
                         "render_from_sections": render_from_sections}
+                if is_url:
+                    meta["discovery"] = str(source)
                 state["source_meta"] = meta
 
             stage("transcribe")
@@ -315,6 +319,29 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
                         render_from_sections=render_from_sections,
                         identity=source_identity,
                         progress=transcribe_progress)
+                    if (is_url and long and media_kind == "audio"
+                            and not read_json(transcript_path).get("words")):
+                        visual = ingest.download_visual_discovery(
+                            source_input, path)
+                        data = read_json(transcript_path)
+                        data.update(video=str(visual), media_kind="video")
+                        atomic_json(transcript_path, data)
+                        source = visual
+                        media_kind = "video"
+                        source_identity = file_identity(source)
+                        state["video"] = str(source)
+                        state["source_meta"] = {
+                            **state.get("source_meta", {}),
+                            "media_kind": "video",
+                            "discovery": str(visual)}
+                        state["cache"]["source_media"] = digest(source_identity)
+                        transcript_key = digest([
+                            dt.TRANSCRIPT_VERSION, source_identity,
+                            options["whisper_model"], options["device"],
+                            bool(long), media_kind,
+                            bool(render_from_sections), source_input])
+                        print("No speech; switching discovery to the "
+                              "low-resolution visual video.", flush=True)
                 state["cache"]["transcript"] = transcript_key
                 state["source_identity"] = source_identity
                 state["progress"] = {"stage": "transcribe", "done": 1,

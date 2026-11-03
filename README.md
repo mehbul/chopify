@@ -13,7 +13,7 @@
 | **Local browser dashboard** | Queue videos, watch job progress, review candidates, edit words and timestamps, and download exports. |
 | **Local video input** | Use MP4, MOV, MKV, WebM, M4V, or AVI recordings directly, or download a yt-dlp-supported URL. |
 | **Any-length sources** | Podcasts, movies, streams, and gameplay VODs work without a duration setting. Long sources switch to a resumable audio-first path automatically. |
-| **Audio-aware discovery** | A local 1 Hz audio timeline boosts reactions, laughs, impacts, and gameplay events, so speech-sparse and action-only sources can still produce clips. |
+| **Audio and visual discovery** | A local 1 Hz audio timeline boosts reactions, laughs, impacts, and gameplay events, while cached 2 fps visual analysis catches motion spikes, scene/UI changes, faces, and action arcs. Speech-sparse and action-only sources can still produce clips. |
 | **Resumable projects** | Reuse matching downloads, transcripts, and completed renders. Retry a failed job without discarding successful clips. |
 | **Batch queue** | Add one source per line in Studio or use a JSON list in the CLI. Each video has an isolated project folder. |
 | **Caption Studio** | Choose from 13 caption looks, then tune font, size, colors, outline, shadow, cue length, position, box background, and word motion. A live overlay follows the source; automatic emphasis and emoji are optional. |
@@ -176,8 +176,9 @@ long path when it is at least **2 hours**, its estimated download is at least
 **8 GB**, or its duration cannot be determined. Everything else keeps the
 original short-source behavior.
 
-- Long URLs download audio only. If the source has no audio, Chopify downloads
-  the lowest-resolution video instead and scores it from visual evidence.
+- Long URLs download audio only. If the source has no audio, or its audio track
+  contains no speech, Chopify downloads the lowest-resolution video instead and
+  scores it from visual evidence.
 - Transcription runs in 30-minute chunks with a 30-second overlap. Completed
   chunks are saved as `transcript.partNNN.json`, so an interrupted job resumes
   instead of restarting.
@@ -190,6 +191,9 @@ original short-source behavior.
 - Local long files render directly and never re-download. Long URL sections cache
   under `sections/`; previews keep them, and a successful final render removes
   them.
+- In Studio, **Watch** on a long URL candidate renders a 480p draft from just that
+  section, plays it, and keeps candidate edits. A project with a full local video
+  seeks the source player instead.
 - If one section fails, other clips still render and successful outputs are
   kept. The failed ranges stay cached for a later retry.
 - Global clip times, `segments.json`, caption timings, brand JSON, and default

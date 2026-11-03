@@ -2,7 +2,7 @@
 
 Chopify is a local Python video clipper. Use the CLI for scripts; the dashboard
 HTTP API is an authenticated loopback interface. No hosted API is provided.
-Documentation updated 2026-10-31; implementation is the source of truth.
+Documentation updated 2026-11-03; implementation is the source of truth.
 
 ## CLI contract
 
@@ -35,12 +35,34 @@ array of source strings. Exit 0 means the requested action completed; errors exi
 nonzero, including partial render/batch failures. Standard output is a human log,
 not a JSON-only protocol. Read project files for structured state.
 
+## Long sources
+
+There is no long-source mode flag. A source uses the long path when its duration
+is unknown or at least 2 hours, or its estimated download is at least 8 GiB.
+Long URLs download audio only. If the source has no audio, or its audio track
+produces no transcript words, Chopify downloads the lowest-resolution video and
+scores visual evidence instead. Long URL transcription runs in 30-minute chunks
+with a 30-second overlap; completed parts are saved as `transcript.partNNN.json`.
+Discovery scans 30-minute ownership blocks and caches `candidates.partNNN.json`.
+Rendering downloads only the selected padded ranges into `sections/`, reuses them
+for previews, and deletes them after a clean final render. Local long files render
+in place. `segments.json` times stay global source seconds; section-local ffmpeg
+seeks are internal through `source_offset`.
+
 ## Project data
 
 `project.json` contains `id`, `source`, `options`, `status`, `stage`, `created`,
 `updated`, `cache`, `renders`, `error`, and optionally `video`, `source_identity`,
-and `last_outputs`. Timestamps are Unix seconds. Statuses include `new`, `queued`,
-`running`, `review`, `complete`, `failed`, and `interrupted`.
+`source_meta`, `progress`, `render_errors`, and `last_outputs`. Timestamps are
+Unix seconds. Statuses include `new`, `queued`, `running`, `review`, `complete`,
+`failed`, and `interrupted`.
+
+`source_meta` records probe data including `duration`, `title`, URL and long
+flags, dimensions, `estimated_size`, `media_kind`, `render_from_sections`, and
+the downloaded `discovery` path for URL sources. `progress` is
+`{stage, done, total, detail}` for the current stage. `render_errors` is a list
+of `{clip, error}` entries for section or clip failures; successful outputs are
+kept for retry.
 
 `options.style` is the base caption preset. `options.caption` is a partial,
 validated caption override or `null`. The effective style resolves preset, then
@@ -53,6 +75,12 @@ defaults.
 ```json
 {"word": "Hello", "start": 1.0, "end": 1.4}
 ```
+
+Long projects also record `source` (the original URL used for section downloads),
+`source_duration`, `media_kind`, `render_from_sections`, `source_identity`, and
+`chunked` with `chunks`. A silent or wordless source has an empty `words` list and
+is scored from media evidence; `video` points at the low-resolution discovery
+file while `source` remains the URL.
 
 Words may also include optional `hidden` and `emphasis` booleans. Hidden words are
 omitted from burnt captions and SRT. Forced emphasis is colored even when
@@ -101,14 +129,22 @@ require a matching Origin. Never publish a running session's token.
 | GET | `/api/projects` | `{ "projects": [project, ...] }` |
 | POST | `/api/projects` | `{ "source": "C:/video.mp4", "options": {} }`; creates without starting |
 | POST | `/api/batch` | `{ "sources": ["C:/video.mp4"], "options": {} }`; creates and queues preparation, up to 100 sources |
-| GET | `/api/projects/ID` | `{ "project": ..., "busy": false, "candidates": [], "transcript": ..., "files": [], "log": "..." }` |
+| GET | `/api/projects/ID` | `{ "project": ..., "busy": false, "candidates": [], "transcript": ..., "selection": {}, "source_meta": {}, "progress": {}, "render_errors": [], "playable_source": true, "files": [], "log": "..." }` |
 | POST | `/api/projects/ID/settings` | Partial settings, e.g. `{ "aspect": "9:16", "layout": "split", "style": "bold", "caption": { "words_per_cue": 2 } }`; `brand_name` selects a preset |
 | POST | `/api/projects/ID/transcript` | `{ "words": [{ "word": "Hello", "start": 0, "end": 0.5 }] }` |
 | POST | `/api/projects/ID/candidates` | `{ "candidates": [{ "start": 0, "end": 20, "hook": "Title", "overall": 7 }] }` |
 | POST | `/api/projects/ID/run` | `{ "action": "render", "preview": true, "pick": "1,3" }`; queues job |
 | POST | `/api/brands` | `{ "name": "channel", "preset": { "font": "Arial", "highlight": "#FFFF00", "animation": "pop" } }`; caption fields are optional |
-| GET | `/media/ID/source` | Source video for a prepared project; byte-range support |
+| GET | `/media/ID/source` | Full source video for a project with `playable_source: true`; byte-range support |
 | GET | `/media/ID/clips/FILE` | Project exports; `previews` also supported |
+
+`GET /api/projects/ID` exposes `source_meta`, `selection`, `progress`,
+`render_errors`, and `playable_source`. `playable_source` is true only when a
+full local video exists and the project does not render from sections. When it is
+false, **Watch** in Studio saves candidate edits and queues a 480p preview for
+that one candidate through the run route (`action: "render"`, `preview: true`,
+`pick: "<row>"`), then plays the resulting draft. That draft was rendered from a
+downloaded section.
 
 Mutations return `{ "ok": true }` unless a created object is documented. Errors
 use `{ "error": "message" }` with 400, 403, or 404 status. Invalid caption fields,

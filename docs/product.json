@@ -1,6 +1,6 @@
 {
   "name": "Chopify",
-  "description": "Free local video clipper with a browser dashboard, resumable batch projects, editable and styled captions, SRT, branding, semantic search, and podcast split-screen.",
+  "description": "Free local video clipper with a browser dashboard, resumable batch projects, any-length ingest, audio/visual-aware clip selection, editable and styled captions, SRT, branding, semantic search, and podcast split-screen.",
   "repository": "https://github.com/mehbul/chopify",
   "website": "https://mehbul.github.io/chopify/",
   "license": "MIT",
@@ -22,9 +22,11 @@
     "auto_emphasis": true,
     "precedence": ["named preset", "brand preset", "project override"]
   },
-  "capabilities": ["serial batch queue", "resumable projects", "candidate review", "caption editing", "caption studio presets and word motion", "live caption preview", "automatic emphasis and emoji", "brand presets and logo", "keyword search", "optional local semantic search", "fixed two-panel podcast framing", "single-frame face tracking", "filler and silence removal"],
+  "capabilities": ["serial batch queue", "resumable projects", "automatic any-length ingest", "resumable 30-minute transcription chunks", "section-only long-URL rendering", "candidate review", "audio and visual evidence for speech-sparse or silent gameplay", "adaptive evidence weighting", "caption editing", "caption studio presets and word motion", "live caption preview", "automatic emphasis and emoji", "brand presets and logo", "keyword search", "optional local semantic search", "fixed two-panel podcast framing", "single-frame face tracking", "filler and silence removal"],
+  "selection": {"default_min_score": 8.0, "returns_all_passing_clips": true, "default_length_range_seconds": [15, 300], "preferred_length_is_soft": true, "evidence": ["text", "audio", "visual"]},
+  "long_sources": {"automatic": true, "thresholds": {"duration_seconds": 7200, "estimated_size_bytes": 8589934592, "unknown_duration": true}, "chunk_seconds": 1800, "overlap_seconds": 30, "section_pad_seconds": 10, "section_merge_gap_seconds": 30, "section_cap_seconds": 600, "studio_preview": "480p preview rendered from a downloaded section"},
   "optional_models": {"semantic_search": {"provider": "local Ollama", "default_model": "nomic-embed-text", "endpoint": "http://127.0.0.1:11434/api/embed"}, "clip_selection": "local Ollama chat model"},
   "privacy": {"hosted_processing": false, "initial_model_downloads": true, "url_inputs_need_internet": true, "dashboard_binding": "127.0.0.1"},
   "not_included": ["social publishing", "scheduling", "cloud collaboration", "hosted processing", "translation", "bilingual captions", "dubbing", "speaker diarization", "guaranteed virality"],
-  "documentation_updated": "2026-10-31"
+  "documentation_updated": "2026-11-03"
 }

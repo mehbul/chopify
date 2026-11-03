@@ -14,7 +14,9 @@ clips. All transcription, scoring, editing, and rendering run on your computer.
 5. Read the selection summary above the candidates. Use **Previous** / **Next**
    to page through 25 cards at a time, and **Select all** / **Select none** to
    change the export set quickly. Click **Watch** beside a candidate to play that
-   range in the source video.
+   range in the source video. A long URL project has no full source player, so
+   **Watch** renders a 480p draft from the candidate's downloaded section and
+   plays that instead.
 6. Change titles, start/end times, and selected checkboxes. Save clip edits.
 7. Open **Captions**, choose a look, tune it, and **Save caption style**. Use
    **Preview 5s** to check motion over a selected range.
@@ -342,8 +344,10 @@ original full-download, single-pass workflow.
 **Ingest and transcription**
 
 - A long URL downloads audio only (`discovery.m4a`). If the source has no audio,
-  Chopify downloads the lowest-resolution video (`discovery.mp4`) and scores the
-  visual track without speech.
+  or the audio track produces no transcript words, Chopify downloads the
+  lowest-resolution video (`discovery.mp4`) and scores the visual track without
+  speech. `transcript.json` keeps the original `source` URL for section downloads
+  and points `video` at the discovery file.
 - A local long file is read in place; it is never downloaded again.
 - Transcription splits the source into 30-minute chunks with a 30-second overlap.
   Each completed chunk is written as `transcript.partNNN.json` and reused on
@@ -373,6 +377,17 @@ original full-download, single-pass workflow.
 - `source_offset` maps global clip times onto the local section timeline for
   rendering, face tracking, tightening, and captions. `segments.json`, caption
   times, and metadata stay in global source time.
+
+**Studio review**
+
+- The project detail reports `source_meta`, progress, and `render_errors`, and
+  says whether a full source is playable. Local and short-URL projects keep the
+  existing source player.
+- For a long URL project, **Watch** saves the current candidate edits and queues a
+  480p preview for that one row through the normal render route. Studio plays the
+  resulting draft and explains that it came from a downloaded section. Preview
+  runs keep section caches for the final export; a clean final render removes
+  them.
 
 ## Find clips by meaning
 
@@ -425,7 +440,7 @@ projects/
     segments.json      # editable clip candidates (the render contract)
     embeddings.json    # optional semantic-search cache
     job.log            # dashboard job output
-    discovery.m4a      # long-URL audio; discovery.mp4 when there is no audio
+    discovery.m4a      # long-URL audio; discovery.mp4 when there is no audio or no speech
     source.mp4         # short-URL footage; local files stay in place
     sections/          # cached long-URL ranges, removed after final render
     previews/*.mp4     # drafts, each with .srt

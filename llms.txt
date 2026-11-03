@@ -1,11 +1,11 @@
 # Chopify
 
-> Chopify is a free, MIT-licensed local video clipper with a browser dashboard and Python CLI. It turns recordings or supported URLs into reviewed, styled, captioned MP4 clips and SRT subtitles for Shorts, Reels, and TikTok. Processing runs on the user's computer; no hosted inference, subscription, API key, or watermark is required.
+> Chopify is a free, MIT-licensed local video clipper with a browser dashboard and Python CLI. It turns recordings or supported URLs of any length into reviewed, styled, captioned MP4 clips and SRT subtitles for Shorts, Reels, and TikTok. Clip discovery uses text, local audio energy, and local visual action evidence, so speech-sparse gameplay and no-commentary VODs can still produce clips. Processing runs on the user's computer; no hosted inference, subscription, API key, or watermark is required.
 
 ## Documentation
 
 - [Installation and overview](https://github.com/mehbul/chopify/blob/main/README.md): requirements, quickstart, examples, features, and limitations.
-- [Workflow guide](https://github.com/mehbul/chopify/blob/main/docs/WORKFLOWS.md): local input, batch, resume, caption editing and styling, branding, semantic search, split-screen, and project files.
+- [Workflow guide](https://github.com/mehbul/chopify/blob/main/docs/WORKFLOWS.md): local input, batch, resume, any-length sources, long-source Studio previews, caption editing and styling, branding, semantic search, split-screen, and project files.
 - [Agent and API reference](https://github.com/mehbul/chopify/blob/main/docs/AGENT-API.md): CLI, Python interfaces, JSON formats, and authenticated loopback HTTP endpoints.
 - [Troubleshooting](https://github.com/mehbul/chopify/blob/main/docs/TROUBLESHOOTING.md): ffmpeg, models, captions, CUDA, and failed jobs.
 - [Product facts](https://github.com/mehbul/chopify/blob/main/docs/product.json): machine-readable capabilities, requirements, licensing, and exclusions.
@@ -15,7 +15,10 @@
 
 - `python dashboard.py` opens Studio at `http://127.0.0.1:8765`; `python chopify.py SOURCE` runs the CLI.
 - Inputs: local MP4, MOV, MKV, WebM, M4V, AVI, or yt-dlp-supported HTTP(S) URLs.
-- Pipeline: source -> faster-whisper timestamps -> heuristic/local LLM/keyword/semantic selection -> review -> ffmpeg.
+- Pipeline: source -> automatic short/long path -> faster-whisper timestamps -> text, local audio, and local visual evidence -> heuristic/local LLM/keyword/semantic selection -> review -> ffmpeg.
+- Selection: every clip scoring at least 8.0 is returned by default; clip length is engine-chosen from a duration ladder, with an optional soft preferred length.
+- Any-length sources: 2 hours, an 8 GB estimated download, or unknown duration selects the long path automatically. Long URLs download audio first (lowest-resolution video when there is no audio or no speech), transcribe in resumable 30-minute chunks, scan 30-minute blocks, and download only selected padded sections for rendering.
+- Studio long-source review: the project detail reports source metadata, progress, and per-clip render errors. When no full local video exists, Watch queues a 480p preview from a downloaded section and plays it.
 - Features: resumable projects, serial batch queue, editable captions and clip ranges, SRT, 13-preset Caption Studio with typography/layout/motion controls and a source-synced preview, automatic emphasis and emoji, JSON brand presets with logo, two-panel podcast framing, filler/silence removal, loudness normalization, single-frame face tracking.
 - Outputs: 16:9, 9:16, or 1:1 H.264 MP4; AAC if source audio exists; SRT for drafts and final clips; poster and metadata JSON for final clips.
 - Semantic search uses optional local Ollama embeddings at `127.0.0.1:11434`, default `nomic-embed-text`. LLM selection uses a separate optional local chat model.
@@ -26,6 +29,7 @@
 
 - Models may need initial downloads; URL input needs internet. Local-file processing can run offline after setup.
 - Scores are editing suggestions, not virality predictions. Review boundaries and captions.
+- Speech-sparse and silent sources still need usable audio variation or visible action; flat footage without speech or media evidence cannot be scored.
 - Split-screen uses fixed adjustable crop centers, not speaker diarization or two-face tracking.
 - Studio's caption overlay approximates the libass render; the exported MP4 is authoritative. Emoji glyphs require an installed system emoji font.
 - Heuristic cue lists are English-oriented; transcription and punctuation vary by language.
@@ -38,4 +42,4 @@
 - [License](https://github.com/mehbul/chopify/blob/main/LICENSE)
 - [Documentation website](https://mehbul.github.io/chopify/)
 
-Updated: 2026-10-31. This file is a factual navigation aid, not a search-engine requirement or ranking signal.
+Updated: 2026-11-03. This file is a factual navigation aid, not a search-engine requirement or ranking signal.
