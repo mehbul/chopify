@@ -595,7 +595,8 @@ def caption_from_args(args):
 
 def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAULT_STYLE,
            do_tighten=False, loudnorm=False, preview=False, brand=None,
-           layout="single", centers=(0.25, 0.75), caption=None):
+           layout="single", centers=(0.25, 0.75), caption=None,
+           source_offset=0.0):
     from captions import write_srt
     out_dir = (Path(out_dir) if out_dir else default_out()).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -617,8 +618,14 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
     start = float(seg["start"])
     end = float(seg["end"])
     dur = end - start
+    offset = float(source_offset)
+    if not math.isfinite(offset) or offset < 0:
+        raise ValueError("Source offset must be a finite nonnegative number.")
     if not math.isfinite(start) or not math.isfinite(end) or start < 0 or dur <= 0:
         raise ValueError("Invalid clip start/end times.")
+    if start < offset - 1e-9:
+        raise ValueError("Clip start precedes its source section.")
+    local_start = max(0.0, start - offset)
     cw, ch, x0, y0 = crop_for(W, H, tw, th)
 
     cap_words = words
@@ -626,11 +633,13 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
     if do_tighten:
         keeps = tighten.plan_cuts(words, start, end)
         render_src = out_dir / "_tight_source.mp4"
-        tighten.apply_cuts(source, keeps, start, render_src)
+        tighten.apply_cuts(source, keeps, start, render_src,
+                           source_offset=offset)
         cap_words, dur = tighten.remap_words(words, start, keeps)
         print(f"  tightened: {len(keeps)} keep-ranges, "
               f"{(end - start) - dur:.1f}s removed", flush=True)
         start = 0.0
+        local_start = 0.0
     build_ass(cap_words, start, start + dur, out_dir / "_caption.ass",
               tw, th, font_size, margin_v, style, brand, caption)
 
@@ -647,7 +656,7 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
               f"pad={tw}:{th}:0:0,subtitles=_caption.ass")
         mode = "podcast split-screen"
     elif needs_track:
-        track = smooth_track(detect_track(render_src, start, dur, W, workdir), W, cw)
+        track = smooth_track(detect_track(render_src, local_start, dur, W, workdir), W, cw)
         build_sendcmd(track, cw, out_dir / "_crop.cmd")
         init_x = max(0, min(int(round(track[0][1] - cw / 2.0)), W - cw))
         vf = (f"sendcmd=f=_crop.cmd,crop={cw}:{ch}:{init_x}:{y0},"
@@ -660,7 +669,7 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
     suffix = ".preview" if preview else ""
     prefix = sanitize(str(seg["id"])) + "-" if seg.get("id") else ""
     out = out_dir / (prefix + sanitize(seg.get("hook", "clip")) + suffix + ".mp4")
-    cmd = ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", str(render_src),
+    cmd = ["ffmpeg", "-y", "-ss", f"{local_start:.3f}", "-i", str(render_src),
            "-t", f"{dur:.3f}",
            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", str(out)]

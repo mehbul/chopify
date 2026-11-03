@@ -346,6 +346,10 @@ def main():
                     if file.exists() and file.resolve() != target.resolve():
                         shutil.copy2(file, target)
             print(f"Exports: {export}")
+            if result.get("status") == "failed":
+                failed = len(result.get("render_errors") or [])
+                ap.exit(1, f"Chopify: {failed} clip(s) failed to render; "
+                           "successful exports were kept.\n")
     except (ValueError, OSError, KeyError, subprocess.CalledProcessError) as exc:
         ap.exit(1, f"Chopify: {exc}\n")
     print("\nCHOPIFY COMPLETE", flush=True)

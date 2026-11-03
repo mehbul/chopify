@@ -1081,3 +1081,82 @@ def test_flat_visual_action_cannot_pass_eight(tmp_path, monkeypatch):
     segs, _ = score_clips.run(
         wd, min_score=8.0, min_len=5, max_len=20, preferred_len=15)
     assert segs == []
+
+
+# ------------------------------------------------------ section source offsets
+
+def test_render_seeks_inside_section_with_global_caption_times(tmp_path, monkeypatch):
+    commands = []
+
+    def fake_run(cmd, **kwargs):
+        commands.append([str(c) for c in cmd])
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(render_clips.subprocess, "run", fake_run)
+    source = tmp_path / "section.mp4"
+    source.write_bytes(b"section")
+    out = render_clips.render(
+        {"id": "001", "start": 55, "end": 60, "hook": "clip"},
+        [{"word": "hello", "start": 55, "end": 56}],
+        source, 640, 360, tmp_path, "16:9", out_dir=tmp_path, preview=True,
+        source_offset=50)
+    assert commands[0][commands[0].index("-ss") + 1] == "5.000"
+    assert "00:00:00,000" in out.with_suffix(".srt").read_text()
+
+
+def test_render_rejects_clip_before_source_offset(tmp_path):
+    source = tmp_path / "section.mp4"
+    source.write_bytes(b"section")
+    with pytest.raises(ValueError, match="precedes"):
+        render_clips.render(
+            {"id": "001", "start": 40, "end": 50, "hook": "clip"},
+            [], source, 640, 360, tmp_path, "16:9", out_dir=tmp_path,
+            preview=True, source_offset=50)
+    with pytest.raises(ValueError, match="nonnegative"):
+        render_clips.render(
+            {"id": "002", "start": 55, "end": 60, "hook": "clip"},
+            [], source, 640, 360, tmp_path, "16:9", out_dir=tmp_path,
+            preview=True, source_offset=-1)
+
+
+def test_apply_cuts_seeks_from_section_offset(tmp_path, monkeypatch):
+    commands = []
+    monkeypatch.setattr(
+        tighten.subprocess, "run",
+        lambda cmd, **kw: commands.append([str(c) for c in cmd]))
+    source = tmp_path / "section.mp4"
+    source.write_bytes(b"section")
+    tighten.apply_cuts(source, [(0.0, 1.0)], 55, tmp_path / "tight.mp4",
+                       source_offset=50)
+    assert commands[0][commands[0].index("-ss") + 1] == "5.000"
+    assert commands[0][commands[0].index("-t") + 1] == "1.000"
+
+
+# ------------------------------------------------- partial long render failures
+
+def test_cli_copies_partial_long_outputs_then_exits_nonzero(
+        tmp_path, monkeypatch):
+    import projects
+
+    project = tmp_path / "long project"
+    projects.init_project(project, "https://example.com/long", {})
+    rendered = tmp_path / "clips" / "001-clip.mp4"
+    rendered.parent.mkdir()
+    for ext in (".mp4", ".srt", ".png", ".meta.json"):
+        rendered.with_suffix(ext).write_text("rendered", encoding="utf-8")
+    failed_state = {
+        "id": "long", "selection": {}, "status": "failed",
+        "render_errors": [{"clip": "002", "error": "404"}],
+        "last_outputs": [str(rendered)],
+    }
+    monkeypatch.setattr(projects, "run_project",
+                        lambda *args, **kwargs: failed_state)
+    export = tmp_path / "export"
+    monkeypatch.setattr(sys, "argv", [
+        "chopify", "--project", str(project), "--action", "render",
+        "--no-preflight", "--out", str(export)])
+    with pytest.raises(SystemExit) as exc:
+        chopify.main()
+    assert exc.value.code == 1
+    assert (export / "001-clip.mp4").read_text(encoding="utf-8") == "rendered"
+    assert (export / "001-clip.meta.json").is_file()

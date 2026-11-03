@@ -12,6 +12,8 @@ import render_clips
 import score_clips
 import evidence
 import visual
+import ingest
+import sections
 import branding
 from captions import update_transcript
 
@@ -192,32 +194,131 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
     if action not in {"all", "prepare", "render"}:
         raise ValueError("Unknown project action.")
     def stage(name):
-        state.update(status="running", stage=name, error=None)
+        state.update(status="running", stage=name, error=None,
+                     progress={"stage": name, "done": 0, "total": 0,
+                               "detail": ""})
         save_project(path, state)
         print(f"[{state['id']}] {name}", flush=True)
         if progress:
             progress(name)
+
+    def transcribe_progress(done, total):
+        state["progress"] = {"stage": "transcribe", "done": int(done),
+                             "total": int(total),
+                             "detail": f"chunk {done}/{total}"}
+        save_project(path, state)
+
     try:
         if action in {"all", "prepare"}:
             stage("source")
             source_input = state["source"]
             local = Path(source_input).expanduser()
+            is_url = ingest.is_url(source_input)
+            if not is_url and not local.is_file():
+                raise ValueError(
+                    f"Video file does not exist or URL is invalid: {source_input}")
+            if not is_url and local.suffix.lower() not in ingest.VIDEO_EXTS:
+                raise ValueError(
+                    "Use a video file: MP4, MKV, WebM, MOV, M4V or AVI.")
             identity = file_identity(local) if local.is_file() else source_input
             source_key = digest(identity)
+            cached_meta = (resume
+                           and state["cache"].get("source_meta") == source_key
+                           and isinstance(state.get("source_meta"), dict))
+            if cached_meta:
+                meta = state["source_meta"]
+            else:
+                meta = ingest.probe_source(source_input)
+                meta.pop("formats", None)
+                meta = {**meta, "long": ingest.is_long_source(meta)}
+                state["source_meta"] = meta
+                state["cache"]["source_meta"] = source_key
+                save_project(path, state)
+            long = bool(meta.get("long", ingest.is_long_source(meta)))
+
             source = Path(state.get("video", "__missing__"))
-            if not resume or state["cache"].get("source") != source_key or not source.is_file():
-                source = dt.resolve_source(source_input, path)
+            media_kind = str(meta.get("media_kind") or "")
+            render_from_sections = bool(meta.get("render_from_sections", False))
+            if (not resume or state["cache"].get("source") != source_key
+                    or not source.is_file()):
+                if is_url and long:
+                    ingest.check_disk(path, None)
+                    source, media_kind = ingest.download_discovery(
+                        source_input, path, meta)
+                    render_from_sections = True
+                elif is_url:
+                    ingest.check_disk(path, meta.get("estimated_size"))
+                    source = dt.resolve_source(source_input, path)
+                    media_kind = "video"
+                    render_from_sections = False
+                else:
+                    source = dt.resolve_source(source_input, path)
+                    media_kind = "video"
+                    render_from_sections = False
+                if not media_kind:
+                    media_kind = ("audio"
+                                  if source.suffix.lower() in ingest.AUDIO_EXTS
+                                  else "video")
                 state["video"] = str(source)
                 state["cache"]["source"] = source_key
+                state["cache"]["source_media"] = digest(file_identity(source))
+                meta = {**meta, "long": long, "media_kind": media_kind,
+                        "render_from_sections": render_from_sections}
+                state["source_meta"] = meta
                 save_project(path, state)
+            else:
+                if not media_kind:
+                    media_kind = ("audio"
+                                  if source.suffix.lower() in ingest.AUDIO_EXTS
+                                  else "video")
+                render_from_sections = bool(
+                    render_from_sections and is_url and long)
+                meta = {**meta, "long": long, "media_kind": media_kind,
+                        "render_from_sections": render_from_sections}
+                state["source_meta"] = meta
+
             stage("transcribe")
-            transcript_key = digest([file_identity(source), options["whisper_model"], options["device"]])
+            transcript_key = digest([
+                dt.TRANSCRIPT_VERSION, file_identity(source),
+                options["whisper_model"], options["device"], bool(long),
+                media_kind, bool(render_from_sections), source_input])
             transcript_path = path / "transcript.json"
-            if not resume or state["cache"].get("transcript") != transcript_key or not transcript_path.exists():
-                dt.transcribe(source, path, options["whisper_model"], options["device"],
-                              "int8" if options["device"] == "cpu" else "default")
+            if (not resume or state["cache"].get("transcript") != transcript_key
+                    or not transcript_path.exists()):
+                duration = meta.get("duration")
+                if duration is None:
+                    try:
+                        duration = ingest.probe_source(
+                            str(source)).get("duration")
+                    except (OSError, ValueError):
+                        duration = None
+                media_only = (is_url and long and media_kind == "video"
+                              and meta.get("has_audio") is False)
+                if media_only and not duration:
+                    raise ValueError(
+                        "Cannot determine the duration of the silent source.")
+                source_identity = file_identity(source)
+                if media_only:
+                    dt.write_media_transcript(
+                        source, path, duration, source=source_input,
+                        media_kind=media_kind,
+                        render_from_sections=render_from_sections,
+                        identity=source_identity)
+                else:
+                    dt.transcribe(
+                        source, path, options["whisper_model"],
+                        options["device"],
+                        "int8" if options["device"] == "cpu" else "default",
+                        duration=duration if long else None,
+                        chunked=bool(long), source=source_input,
+                        media_kind=media_kind,
+                        render_from_sections=render_from_sections,
+                        identity=source_identity,
+                        progress=transcribe_progress)
                 state["cache"]["transcript"] = transcript_key
-                state["source_identity"] = file_identity(source)
+                state["source_identity"] = source_identity
+                state["progress"] = {"stage": "transcribe", "done": 1,
+                                     "total": 1, "detail": "complete"}
                 save_project(path, state)
             stage("discover")
             data = read_json(transcript_path)
@@ -259,6 +360,7 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
             stage("render preview" if preview else "render")
             data = read_json(path / "transcript.json")
             source = Path(data["video"]).resolve()
+            section_source = str(data.get("source") or state["source"])
             if state.get("source_identity") and state["source_identity"] != file_identity(source):
                 raise ValueError("Source video changed since transcription. Find clips again before rendering.")
             segments = validate_segments(read_json(path / "segments.json"), data["duration"])
@@ -279,25 +381,94 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
             out.mkdir(exist_ok=True)
             brand = branding.load_brand(options["brand"]) if options["brand"] else None
             logo_identity = file_identity(brand["logo"]) if brand and brand["logo"] else None
-            W, H = render_clips.ffprobe_dims(source)
+            render_from_sections = bool(
+                (state.get("source_meta") or {}).get("render_from_sections")
+                or data.get("render_from_sections"))
+            section_plan = {}
+            if render_from_sections:
+                groups = sections.plan_sections(
+                    segments, data.get("duration") or 0)
+                for group_index, group in enumerate(groups, 1):
+                    for clip_index in group["clips"]:
+                        section_plan[clip_index] = (group_index, group)
+                W, H = None, None
+            else:
+                W, H = render_clips.ffprobe_dims(source)
+            loaded_sections = {}
+            failed_sections = {}
+            render_errors = []
+            state["render_errors"] = render_errors
             outputs = []
             for i, segment in enumerate(segments, 1):
                 stage(f"{'preview' if preview else 'render'} {i}/{len(segments)}")
-                key = digest([segment, data["words"], file_identity(source), options, brand, logo_identity, preview])
+                render_source = source
+                source_offset = 0.0
+                section_key = None
+                group_index = None
+                if render_from_sections:
+                    group_index, group = section_plan[i - 1]
+                    source_offset = float(group["start"])
+                    section_key = digest([
+                        section_source, group["start"], group["end"],
+                        sections.SECTION_VERSION])
+                key = digest([segment, data["words"], file_identity(source),
+                              options, brand, logo_identity, preview,
+                              source_offset, section_key])
                 cached = state["renders"].get(key)
                 expected_suffixes = [".mp4", ".srt"] if preview else [".mp4", ".srt", ".png", ".meta.json"]
                 if resume and cached and all(Path(cached).with_suffix(ext).is_file() for ext in expected_suffixes):
                     outputs.append(cached)
                     continue
-                output = render_clips.render({**segment, "id": segment["id"] + "-" + key[:8]}, data["words"], source, W, H, path,
-                    options["aspect"], out_dir=out, style=options["style"],
-                    do_tighten=options["tighten"], loudnorm=options["loudnorm"], preview=preview,
-                    brand=brand, layout=options["layout"], centers=options["centers"],
-                    caption=options["caption"])
+                if render_from_sections:
+                    if group_index in failed_sections:
+                        render_errors.append(
+                            {"clip": segment["id"],
+                             "error": failed_sections[group_index]})
+                        continue
+                    loaded = loaded_sections.get(group_index)
+                    if loaded is None:
+                        try:
+                            render_source = sections.ensure_section(
+                                section_source, path, group_index,
+                                group["start"], group["end"])
+                            W, H = render_clips.ffprobe_dims(render_source)
+                            loaded_sections[group_index] = (
+                                render_source, W, H)
+                        except (Exception, SystemExit) as exc:
+                            failed_sections[group_index] = str(exc)
+                            render_errors.append(
+                                {"clip": segment["id"], "error": str(exc)})
+                            save_project(path, state)
+                            continue
+                    else:
+                        render_source, W, H = loaded
+                try:
+                    output = render_clips.render({**segment, "id": segment["id"] + "-" + key[:8]}, data["words"], render_source, W, H, path,
+                        options["aspect"], out_dir=out, style=options["style"],
+                        do_tighten=options["tighten"], loudnorm=options["loudnorm"], preview=preview,
+                        brand=brand, layout=options["layout"], centers=options["centers"],
+                        caption=options["caption"], source_offset=source_offset)
+                except (Exception, SystemExit) as exc:
+                    if not render_from_sections:
+                        raise
+                    render_errors.append(
+                        {"clip": segment["id"], "error": str(exc)})
+                    save_project(path, state)
+                    continue
                 state["renders"][key] = str(output)
                 outputs.append(str(output))
                 save_project(path, state)
             state["last_outputs"] = outputs
+            if render_errors:
+                message = f"{len(render_errors)} clip(s) failed to render."
+                if not outputs:
+                    raise ValueError(message + " Sections stay cached for retry.")
+                state.update(status="failed", stage="render incomplete",
+                             error=message + " Successful clips were kept.")
+                save_project(path, state)
+                return state
+            if render_from_sections and not preview:
+                sections.cleanup_sections(path)
             state.update(status="review" if preview else "complete", stage="preview ready" if preview else "complete")
         save_project(path, state)
         return state
