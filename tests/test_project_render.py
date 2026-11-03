@@ -78,3 +78,104 @@ def test_render_rejects_source_changed_since_transcription(tmp_path, monkeypatch
     monkeypatch.setattr(projects.render_clips, "render", fake_render)
     with pytest.raises(ValueError, match="changed"):
         projects.run_project(path, action="render")
+
+
+def ready_long_project(tmp_path, segments=None, duration=600):
+    source_url = "https://example.com/long"
+    audio = tmp_path / "discovery.m4a"
+    audio.write_bytes(b"audio")
+    state = projects.create_project(tmp_path / "projects", source_url, {})
+    path = projects.project_path(tmp_path / "projects", state["id"])
+    projects.atomic_json(path / "transcript.json", {
+        "video": str(audio), "duration": duration, "render_from_sections": True,
+        "words": [{"word": "Hello.", "start": 0, "end": 1}]})
+    projects.atomic_json(path / "segments.json", segments or [
+        {"start": 100, "end": 140, "hook": "sectioned", "overall": 9}])
+    return path
+
+
+def fake_section_render(segment, *args, **kwargs):
+    out = kwargs["out_dir"] / f"{segment['id']}.mp4"
+    for ext in (".mp4", ".srt", ".png", ".meta.json"):
+        out.with_suffix(ext).write_text("rendered")
+    return out
+
+
+def test_long_project_renders_from_section_offsets(tmp_path, monkeypatch):
+    path = ready_long_project(tmp_path)
+    section = path / "sections" / "section001.mp4"
+    section.parent.mkdir()
+    section.write_bytes(b"section")
+    calls = []
+    monkeypatch.setattr(
+        projects.sections, "ensure_section",
+        lambda url, workdir, index, start, end: (
+            calls.append((url, index, start, end)) or section))
+    monkeypatch.setattr(projects.render_clips, "ffprobe_dims",
+                        lambda p: (640, 360))
+    seen = []
+
+    def render(segment, words, source, W, H, workdir, *args, **kwargs):
+        seen.append((Path(source), kwargs["source_offset"]))
+        return fake_section_render(segment, *args, **kwargs)
+
+    monkeypatch.setattr(projects.render_clips, "render", render)
+    state = projects.run_project(path, action="render")
+    assert calls == [("https://example.com/long", 1, 90.0, 150.0)]
+    assert seen == [(section, 90.0)]
+    assert state["render_errors"] == []
+    assert state["status"] == "complete"
+    assert not section.exists()
+
+
+def test_section_failure_records_error_and_keeps_successes(tmp_path, monkeypatch):
+    path = ready_long_project(tmp_path, segments=[
+        {"start": 100, "end": 140, "hook": "one", "overall": 9},
+        {"start": 400, "end": 440, "hook": "two", "overall": 9}])
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("404")
+
+    monkeypatch.setattr(projects.sections, "ensure_section", fail)
+    with pytest.raises(ValueError, match="failed"):
+        projects.run_project(path, action="render")
+    state = projects.read_project(path)
+    assert state["status"] == "failed"
+    assert [item["clip"] for item in state["render_errors"]] == ["001", "002"]
+
+
+def test_partial_section_failure_keeps_outputs_for_retry(tmp_path, monkeypatch):
+    path = ready_long_project(tmp_path, segments=[
+        {"start": 100, "end": 140, "hook": "one", "overall": 9},
+        {"start": 400, "end": 440, "hook": "two", "overall": 9}])
+    section = path / "sections" / "section001.mp4"
+    section.parent.mkdir()
+    section.write_bytes(b"section")
+
+    def ensure(url, workdir, index, start, end):
+        if index == 1:
+            return section
+        raise RuntimeError("404")
+
+    monkeypatch.setattr(projects.sections, "ensure_section", ensure)
+    monkeypatch.setattr(projects.render_clips, "ffprobe_dims",
+                        lambda p: (640, 360))
+    monkeypatch.setattr(projects.render_clips, "render", fake_section_render)
+    state = projects.run_project(path, action="render")
+    assert state["status"] == "failed"
+    assert len(state["last_outputs"]) == 1
+    assert len(state["render_errors"]) == 1
+    assert section.exists()
+
+    seen = []
+    monkeypatch.setattr(
+        projects.sections, "ensure_section",
+        lambda url, workdir, index, start, end: (
+            seen.append(index) or section))
+    state = projects.run_project(path, action="render")
+    assert seen == [2]
+    assert sorted(state["last_outputs"]) == sorted(set(state["last_outputs"]))
+    assert len(set(state["last_outputs"])) == 2
+    assert state["status"] == "complete"
+    assert state["render_errors"] == []
+    assert not section.exists()

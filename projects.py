@@ -13,6 +13,7 @@ import score_clips
 import evidence
 import visual
 import ingest
+import sections
 import branding
 from captions import update_transcript
 
@@ -359,6 +360,7 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
             stage("render preview" if preview else "render")
             data = read_json(path / "transcript.json")
             source = Path(data["video"]).resolve()
+            section_source = str(data.get("source") or state["source"])
             if state.get("source_identity") and state["source_identity"] != file_identity(source):
                 raise ValueError("Source video changed since transcription. Find clips again before rendering.")
             segments = validate_segments(read_json(path / "segments.json"), data["duration"])
@@ -379,25 +381,94 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
             out.mkdir(exist_ok=True)
             brand = branding.load_brand(options["brand"]) if options["brand"] else None
             logo_identity = file_identity(brand["logo"]) if brand and brand["logo"] else None
-            W, H = render_clips.ffprobe_dims(source)
+            render_from_sections = bool(
+                (state.get("source_meta") or {}).get("render_from_sections")
+                or data.get("render_from_sections"))
+            section_plan = {}
+            if render_from_sections:
+                groups = sections.plan_sections(
+                    segments, data.get("duration") or 0)
+                for group_index, group in enumerate(groups, 1):
+                    for clip_index in group["clips"]:
+                        section_plan[clip_index] = (group_index, group)
+                W, H = None, None
+            else:
+                W, H = render_clips.ffprobe_dims(source)
+            loaded_sections = {}
+            failed_sections = {}
+            render_errors = []
+            state["render_errors"] = render_errors
             outputs = []
             for i, segment in enumerate(segments, 1):
                 stage(f"{'preview' if preview else 'render'} {i}/{len(segments)}")
-                key = digest([segment, data["words"], file_identity(source), options, brand, logo_identity, preview])
+                render_source = source
+                source_offset = 0.0
+                section_key = None
+                group_index = None
+                if render_from_sections:
+                    group_index, group = section_plan[i - 1]
+                    source_offset = float(group["start"])
+                    section_key = digest([
+                        section_source, group["start"], group["end"],
+                        sections.SECTION_VERSION])
+                key = digest([segment, data["words"], file_identity(source),
+                              options, brand, logo_identity, preview,
+                              source_offset, section_key])
                 cached = state["renders"].get(key)
                 expected_suffixes = [".mp4", ".srt"] if preview else [".mp4", ".srt", ".png", ".meta.json"]
                 if resume and cached and all(Path(cached).with_suffix(ext).is_file() for ext in expected_suffixes):
                     outputs.append(cached)
                     continue
-                output = render_clips.render({**segment, "id": segment["id"] + "-" + key[:8]}, data["words"], source, W, H, path,
-                    options["aspect"], out_dir=out, style=options["style"],
-                    do_tighten=options["tighten"], loudnorm=options["loudnorm"], preview=preview,
-                    brand=brand, layout=options["layout"], centers=options["centers"],
-                    caption=options["caption"])
+                if render_from_sections:
+                    if group_index in failed_sections:
+                        render_errors.append(
+                            {"clip": segment["id"],
+                             "error": failed_sections[group_index]})
+                        continue
+                    loaded = loaded_sections.get(group_index)
+                    if loaded is None:
+                        try:
+                            render_source = sections.ensure_section(
+                                section_source, path, group_index,
+                                group["start"], group["end"])
+                            W, H = render_clips.ffprobe_dims(render_source)
+                            loaded_sections[group_index] = (
+                                render_source, W, H)
+                        except (Exception, SystemExit) as exc:
+                            failed_sections[group_index] = str(exc)
+                            render_errors.append(
+                                {"clip": segment["id"], "error": str(exc)})
+                            save_project(path, state)
+                            continue
+                    else:
+                        render_source, W, H = loaded
+                try:
+                    output = render_clips.render({**segment, "id": segment["id"] + "-" + key[:8]}, data["words"], render_source, W, H, path,
+                        options["aspect"], out_dir=out, style=options["style"],
+                        do_tighten=options["tighten"], loudnorm=options["loudnorm"], preview=preview,
+                        brand=brand, layout=options["layout"], centers=options["centers"],
+                        caption=options["caption"], source_offset=source_offset)
+                except (Exception, SystemExit) as exc:
+                    if not render_from_sections:
+                        raise
+                    render_errors.append(
+                        {"clip": segment["id"], "error": str(exc)})
+                    save_project(path, state)
+                    continue
                 state["renders"][key] = str(output)
                 outputs.append(str(output))
                 save_project(path, state)
             state["last_outputs"] = outputs
+            if render_errors:
+                message = f"{len(render_errors)} clip(s) failed to render."
+                if not outputs:
+                    raise ValueError(message + " Sections stay cached for retry.")
+                state.update(status="failed", stage="render incomplete",
+                             error=message + " Successful clips were kept.")
+                save_project(path, state)
+                return state
+            if render_from_sections and not preview:
+                sections.cleanup_sections(path)
             state.update(status="review" if preview else "complete", stage="preview ready" if preview else "complete")
         save_project(path, state)
         return state
