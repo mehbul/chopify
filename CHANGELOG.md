@@ -24,6 +24,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Direct local video input (MP4, MOV, MKV, WebM, M4V, AVI).
 - Resumable projects with stage invalidation, per-clip checkpoints, and distinct
   output names for render variants; partial failures retain successful clips.
+- Automatic long-source path: sources of 2 hours or more, 8 GB estimated download,
+  or unknown duration use an audio-first probe and resumable ingest. Short
+  sources keep the original single-pass workflow.
+- Long URLs download audio only, or lowest-resolution video when there is no
+  audio; local long files are read in place.
+- Resumable 30-minute transcription chunks with 30-second overlap merging and
+  global word times (`transcript.partNNN.json`).
+- Resumable 30-minute discovery blocks with `max_len` boundary context
+  (`candidates.partNNN.json`).
+- Selected-range section rendering for long URLs: 10-second padding, 30-second
+  merge gap, 10-minute cap, `source_offset` global-to-local time mapping, and
+  automatic cleanup after a successful final render.
+- Per-clip section and render errors (`render_errors`) keep successful outputs
+  and cached sections for retry.
 - Exhaustive sentence-seeded discovery with an AI-chosen duration ladder,
   `candidates.json` / `selection.json` diagnostics, and paginated Studio review.
 - Fully local audio-evidence timeline with cached 1 Hz features, content
@@ -57,6 +71,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Default minimum clip score is now 8.0 (was 6.5 heuristic / 8.0 LLM).
+- Long sources select the audio-first, chunked, block-scanned, section-rendered
+  path automatically; there is no duration ceiling or mode toggle.
+- Render cache keys include the section offset and section identity, so long
+  project retries reuse finished clips without re-downloading their sections.
 - Every clip at or above the threshold is returned by default; the ten-clip cap
   is now opt-in through `--max-clips`.
 - Clip length is selected from a duration ladder; `--preferred-len` is a soft
@@ -90,6 +108,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Render failures return nonzero instead of reporting success.
 - Relative output paths resolve before ffmpeg changes its working directory.
 - Identical clip titles cannot overwrite each other's project exports.
+- A failed long-source section records a per-clip error instead of discarding
+  successful renders; remaining sections still render and retry later.
 
 ## [1.3.0] - 2026-09-06
 

@@ -12,6 +12,7 @@
 | --- | --- |
 | **Local browser dashboard** | Queue videos, watch job progress, review candidates, edit words and timestamps, and download exports. |
 | **Local video input** | Use MP4, MOV, MKV, WebM, M4V, or AVI recordings directly, or download a yt-dlp-supported URL. |
+| **Any-length sources** | Podcasts, movies, streams, and gameplay VODs work without a duration setting. Long sources switch to a resumable audio-first path automatically. |
 | **Audio-aware discovery** | A local 1 Hz audio timeline boosts reactions, laughs, impacts, and gameplay events, so speech-sparse and action-only sources can still produce clips. |
 | **Resumable projects** | Reuse matching downloads, transcripts, and completed renders. Retry a failed job without discarding successful clips. |
 | **Batch queue** | Add one source per line in Studio or use a JSON list in the CLI. Each video has an isolated project folder. |
@@ -167,6 +168,32 @@ uploaded, and later prepares reuse the cache.
   then text; if neither modality is usable, scoring uses text alone.
 
 The score is still an editing suggestion, not a prediction of virality.
+
+### Very long sources and gameplay VODs
+
+There is no long-video toggle and no fixed duration ceiling. A source uses the
+long path when it is at least **2 hours**, its estimated download is at least
+**8 GB**, or its duration cannot be determined. Everything else keeps the
+original short-source behavior.
+
+- Long URLs download audio only. If the source has no audio, Chopify downloads
+  the lowest-resolution video instead and scores it from visual evidence.
+- Transcription runs in 30-minute chunks with a 30-second overlap. Completed
+  chunks are saved as `transcript.partNNN.json`, so an interrupted job resumes
+  instead of restarting.
+- Discovery scans 30-minute ownership blocks and reads up to `--max-len` of
+  context across each boundary. Completed blocks cache as
+  `candidates.partNNN.json`.
+- Rendering downloads only the selected ranges. Nearby clips share one padded
+  section (10 seconds of padding, clips within 30 seconds merged, 10-minute cap);
+  a single longer clip keeps its full range.
+- Local long files render directly and never re-download. Long URL sections cache
+  under `sections/`; previews keep them, and a successful final render removes
+  them.
+- If one section fails, other clips still render and successful outputs are
+  kept. The failed ranges stay cached for a later retry.
+- Global clip times, `segments.json`, caption timings, brand JSON, and default
+  16:9 output are unchanged.
 
 ## Semantic search and optional local AI
 

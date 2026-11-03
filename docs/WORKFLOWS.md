@@ -331,6 +331,49 @@ search settings) runs discovery again. In Studio, the summary shows the passing
 count, score range, and duration range; candidates are paginated 25 per page and
 all passing clips start selected.
 
+## Very long sources and section rendering
+
+Chopify handles podcasts, movies, streams, and gameplay/PC-game VODs of any
+length with the same commands. There is no long-video toggle. The long path is
+selected automatically when the source is at least **2 hours**, its estimated
+download is at least **8 GB**, or its duration is unknown. Short sources keep the
+original full-download, single-pass workflow.
+
+**Ingest and transcription**
+
+- A long URL downloads audio only (`discovery.m4a`). If the source has no audio,
+  Chopify downloads the lowest-resolution video (`discovery.mp4`) and scores the
+  visual track without speech.
+- A local long file is read in place; it is never downloaded again.
+- Transcription splits the source into 30-minute chunks with a 30-second overlap.
+  Each completed chunk is written as `transcript.partNNN.json` and reused on
+  retry. The merged `transcript.json` keeps global word times and records
+  `chunked`, `chunks`, `media_kind`, and `render_from_sections`.
+
+**Discovery**
+
+- Discovery scans 30-minute ownership blocks. Each block owns seeds that start
+  inside it and may read up to `--max-len` seconds of context past its boundary,
+  so clips do not stop at a block edge.
+- Completed blocks cache as `candidates.partNNN.json`. Changing the transcript,
+  length settings, preferred length, or evidence version invalidates the cache.
+- Evidence, thresholds, deduplication, and the 8.0+ contract are the same as for
+  short sources. No-commentary gameplay still uses audio events or visual action.
+
+**Section rendering**
+
+- Only the selected ranges are downloaded. Nearby clips share a section with
+  10 seconds of padding; clips within 30 seconds are merged, and a section is
+  capped at 10 minutes. A single longer clip keeps its full padded range.
+- Sections cache under `sections/`. Previews keep them; a successful final render
+  with no errors deletes them.
+- A section or clip failure is recorded per clip in `project.json` as
+  `render_errors`. Other groups keep rendering, successful outputs are kept, and
+  cached sections remain for a later `--action render` retry.
+- `source_offset` maps global clip times onto the local section timeline for
+  rendering, face tracking, tightening, and captions. `segments.json`, caption
+  times, and metadata stay in global source time.
+
 ## Find clips by meaning
 
 Install and start Ollama, then download an embedding model:
@@ -374,12 +417,17 @@ projects/
   <id>/
     project.json       # source, settings, stage status, cache records
     transcript.json    # word timestamps, sentences, source path
+    transcript.partNNN.json # resumable 30-minute transcription chunks
+    audio_parts/       # temporary chunk audio, emptied as chunks complete
     candidates.json    # every deduplicated candidate before thresholding
+    candidates.partNNN.json # resumable 30-minute discovery blocks
     selection.json     # threshold, score range, counts, durations
     segments.json      # editable clip candidates (the render contract)
     embeddings.json    # optional semantic-search cache
     job.log            # dashboard job output
-    source.mp4         # downloaded footage; local files stay in place
+    discovery.m4a      # long-URL audio; discovery.mp4 when there is no audio
+    source.mp4         # short-URL footage; local files stay in place
+    sections/          # cached long-URL ranges, removed after final render
     previews/*.mp4     # drafts, each with .srt
     clips/*.mp4        # final exports, .srt, .png, .meta.json
 ```
