@@ -1,10 +1,29 @@
 <p align="center"><img src="assets/banner.svg" alt="Chopify — local video clipping and captions" width="880"></p>
 
-# Chopify — free, local AI video clipper
+# Chopify
 
-**Turn long videos into captioned clips for YouTube Shorts, Instagram Reels, and TikTok, on your own computer.** Chopify is an open-source Python app with a local browser dashboard and a CLI. Import a recording or a video URL, find moments, correct captions, review drafts, and export MP4 clips with SRT subtitles. No subscription, API key, cloud upload, or watermark.
+**Turn long videos into scored, captioned shorts — locally, free, with no uploads or watermarks.**
 
-[Get started](#install-and-open-the-dashboard) · [Workflow guide](docs/WORKFLOWS.md) · [Agent/API reference](docs/AGENT-API.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Changelog](CHANGELOG.md)
+<p align="center">
+  <img src="assets/demo.gif" alt="A Chopify clip with word-by-word burned-in captions" width="720">
+</p>
+
+<p align="center">
+  <a href="#install-in-one-command"><b>Install</b></a> ·
+  <a href="https://mehbul.github.io/chopify/"><b>Live tour</b></a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="LICENSE">MIT License</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/mehbul/chopify/actions/workflows/ci.yml"><img src="https://github.com/mehbul/chopify/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python 3.11+">
+</p>
+
+Chopify is an open-source Python app with a local browser dashboard and a CLI. Import a recording or a video URL, find moments, correct captions, review drafts, and export MP4 clips with SRT subtitles. No subscription, API key, cloud upload, or watermark. The [live site](https://mehbul.github.io/chopify/) is a product tour; the app itself runs on your computer.
+
+[Workflow guide](docs/WORKFLOWS.md) · [Agent/API reference](docs/AGENT-API.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) · [Changelog](CHANGELOG.md)
 
 ## What can Chopify do?
 
@@ -27,7 +46,26 @@
 
 Clip selection favors sentence endings with punctuation. Scores are editing suggestions, **not predictions or guarantees of virality**. Review the results before publishing.
 
-## Install and open the dashboard
+## Install in one command
+
+**Windows** (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/mehbul/chopify/main/install.ps1 | iex
+```
+
+**macOS / Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mehbul/chopify/main/install.sh | bash
+```
+
+The installer checks Git, Python 3.11+, and ffmpeg, installs anything missing when a package manager is available, clones Chopify into `./chopify`, creates `.venv`, installs the Python dependencies, and opens Studio at **http://127.0.0.1:8765**. Set `CHOPIFY_NO_START=1` to install only, or `CHOPIFY_DIR=/path` to choose the folder.
+
+Prefer to inspect before running? [install.ps1](install.ps1) and [install.sh](install.sh) are short and commented.
+
+<details>
+<summary><b>Manual install</b></summary>
 
 Windows is the primary target. Use **Python 3.11+** and **ffmpeg/ffprobe with libx264, AAC, and subtitle rendering support**. Linux CI also checks the Python and ffmpeg workflows.
 
@@ -39,6 +77,8 @@ python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python dashboard.py
 ```
+
+</details>
 
 Studio opens at **http://127.0.0.1:8765**. Paste a local video path or URL, then click **Find clips**. Add multiple sources on separate lines to queue them. After processing, review candidates, edit captions, style them in the **Captions** tab, save your settings, and export selected clips. Stop the server with Ctrl+C. To change the port:
 
@@ -260,4 +300,12 @@ python -m compileall -q chopify.py dashboard.py projects.py captions.py branding
 
 Tests include real ffmpeg renders when ffmpeg is installed; speech models and Ollama are not required for the automated suite. Keep videos, transcripts, generated clips, and local brand presets out of Git. Use footage you have permission to process.
 
-Maintained by [mehbul](https://github.com/mehbul). [MIT license](LICENSE). Last documentation update: **2026-11-01**.
+## Contributing
+
+Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for setup, tests, and review expectations, and use [GitHub Discussions](https://github.com/mehbul/chopify/discussions) for questions and ideas.
+
+## License
+
+MIT — see [LICENSE](LICENSE). You can use, fork, and ship Chopify; attribution and a link back are appreciated.
+
+Maintained by [mehbul](https://github.com/mehbul). Last documentation update: **2026-11-04**.

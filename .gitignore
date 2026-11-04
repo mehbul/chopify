@@ -10,6 +10,7 @@ __pycache__/
 *.onnx
 *.log
 *.sh
+!install.sh
 
 # chopify outputs
 clips/
