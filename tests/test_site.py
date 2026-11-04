@@ -23,6 +23,8 @@ class Page(HTMLParser):
             self.canonical = attrs["href"]
         if tag == "img":
             self.assets.append(attrs["src"])
+        if tag == "meta" and attrs.get("property") == "og:image":
+            self.assets.append(attrs["content"].rsplit("/", 1)[-1])
         if tag == "link" and attrs.get("rel") == "stylesheet":
             self.assets.append(attrs["href"])
 
