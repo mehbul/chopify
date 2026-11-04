@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions, ideas, and show-and-tell
+    url: https://github.com/mehbul/chopify/discussions
+    about: Ask for help, share a workflow, or suggest something before opening an issue.
+  - name: Documentation and troubleshooting
+    url: https://mehbul.github.io/chopify/
+    about: Setup, CLI, captions, long sources, and known fixes.

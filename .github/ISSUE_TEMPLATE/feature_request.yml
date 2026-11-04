@@ -1,0 +1,61 @@
+name: Feature request
+description: Suggest a capability, workflow, caption look, or quality improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Chopify is local-first: no paid APIs, cloud uploads, telemetry, or required
+        API keys. Features that keep that contract are much easier to accept.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the workflow that is hard today, not just the solution.
+      placeholder: I record two-person podcasts and want ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What should Chopify do? CLI flag, Studio control, preset, or API?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you tried
+      description: Existing flags, presets, or other tools you used instead.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Clip discovery and scoring
+        - Transcription and captions
+        - Rendering and layout
+        - Studio dashboard
+        - CLI and automation
+        - Long sources and downloads
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I am willing to open a pull request for this.
+        - label: I can test a draft build on my footage.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions for this request.
+          required: true
+        - label: This request does not require a paid API, cloud upload, or telemetry.
+          required: true

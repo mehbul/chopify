@@ -1,0 +1,97 @@
+name: Bug report
+description: Something failed, crashed, or produced a wrong clip, caption, or export.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Please remove API keys, cookies, tokens, and private
+        paths before submitting. Small, reproducible reports get fixed fastest.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the actual result and the result you expected.
+      placeholder: The render stopped at clip 3 and the MP4 has no audio.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the exact command, flags, and source type.
+      placeholder: |
+        1. Run `python chopify.py "video.mp4" --aspect 9:16`
+        2. Wait for the render stage
+        3. Clip 3 fails with ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Chopify version or commit
+      description: The release tag or the first 7 characters of the commit.
+      placeholder: v1.4.0 or 04556bf
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Output of `python --version`.
+      placeholder: Python 3.11.9
+    validations:
+      required: true
+  - type: input
+    id: ffmpeg
+    attributes:
+      label: ffmpeg version
+      description: First line of `ffmpeg -version`.
+      placeholder: ffmpeg version 8.1.1
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: Source type
+      options:
+        - Local video file
+        - YouTube or other supported URL
+        - Both / not sure
+    validations:
+      required: true
+  - type: input
+    id: source-length
+    attributes:
+      label: Source length
+      description: Approximate duration, for example 12m or 3h10m.
+      placeholder: 1h42m
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or screenshots
+      description: Paste the failing output. Redact secrets and private paths.
+      render: text
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and discussions.
+          required: true
+        - label: I removed secrets, cookies, and private paths from this report.
+          required: true
+        - label: I can reproduce this on the latest `main` or release.
+          required: true
