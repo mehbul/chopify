@@ -87,7 +87,7 @@ def test_chunked_transcription_resumes_completed_parts(tmp_path, monkeypatch):
     assert data["transcript_version"] == download_and_transcribe.TRANSCRIPT_VERSION
     assert data["words"][0]["word"] == "hello"
     assert data["words"][0]["start"] == 0.0
-    assert [p.name for p in tmp_path.glob("transcript.part*.json")] == [
+    assert sorted(p.name for p in tmp_path.glob("transcript.part*.json")) == [
         "transcript.part000.json", "transcript.part001.json"]
 
 
