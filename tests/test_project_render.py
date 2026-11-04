@@ -128,6 +128,31 @@ def test_long_project_renders_from_section_offsets(tmp_path, monkeypatch):
     assert not section.exists()
 
 
+def test_section_stall_falls_back_to_full_source(tmp_path, monkeypatch):
+    path = ready_long_project(tmp_path)
+    full = tmp_path / "full.mp4"
+    full.write_bytes(b"full source")
+    monkeypatch.setattr(
+        projects.sections, "ensure_section",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            projects.ingest.SectionDownloadTimeout("stalled")))
+    monkeypatch.setattr(projects.sections, "ensure_full_source",
+                        lambda *args, **kwargs: full)
+    monkeypatch.setattr(projects.render_clips, "ffprobe_dims",
+                        lambda p: (640, 360))
+    seen = []
+
+    def render(segment, words, source, W, H, workdir, *args, **kwargs):
+        seen.append((Path(source), kwargs["source_offset"]))
+        return fake_section_render(segment, *args, **kwargs)
+
+    monkeypatch.setattr(projects.render_clips, "render", render)
+    state = projects.run_project(path, action="render")
+    assert seen == [(full, 0.0)]
+    assert state["status"] == "complete"
+    assert state["render_errors"] == []
+
+
 def test_section_failure_records_error_and_keeps_successes(tmp_path, monkeypatch):
     path = ready_long_project(tmp_path, segments=[
         {"start": 100, "end": 140, "hook": "one", "overall": 9},

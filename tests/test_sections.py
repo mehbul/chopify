@@ -96,6 +96,43 @@ def test_ensure_section_raises_after_all_qualities_fail(tmp_path, monkeypatch):
         raise AssertionError("expected RuntimeError")
 
 
+def test_ensure_section_stops_retrying_after_a_stall(tmp_path, monkeypatch):
+    calls = []
+
+    def download(url, start, end, out, quality=1080, runner=None):
+        calls.append(quality)
+        raise sections.ingest.SectionDownloadTimeout("ranged download stalled")
+
+    monkeypatch.setattr(sections.ingest, "download_section", download)
+    try:
+        sections.ensure_section("https://e/x", tmp_path, 1, 0, 30)
+    except sections.ingest.SectionDownloadTimeout as exc:
+        assert "stalled" in str(exc)
+    else:
+        raise AssertionError("expected SectionDownloadTimeout")
+    assert calls == [1080]
+
+
+def test_find_full_source_and_cleanup(tmp_path):
+    assert sections.find_full_source(tmp_path) is None
+    full = tmp_path / "source_full.mp4"
+    full.write_bytes(b"full source")
+    assert sections.find_full_source(tmp_path) == full
+    sections.cleanup_full_source(tmp_path)
+    assert not full.exists()
+
+
+def test_ensure_full_source_reuses_cached_file(tmp_path, monkeypatch):
+    full = tmp_path / "source_full.mkv"
+    full.write_bytes(b"full source")
+
+    def fail(*args, **kwargs):
+        raise AssertionError("should not download a cached full source")
+
+    monkeypatch.setattr(sections.ingest, "download_full", fail)
+    assert sections.ensure_full_source("https://e/x", tmp_path) == full
+
+
 def test_cleanup_only_removes_sections(tmp_path):
     keep = tmp_path / "clips" / "clip.mp4"
     keep.parent.mkdir()

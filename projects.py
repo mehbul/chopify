@@ -411,6 +411,12 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
             render_from_sections = bool(
                 (state.get("source_meta") or {}).get("render_from_sections")
                 or data.get("render_from_sections"))
+            cached_full = (sections.find_full_source(path)
+                           if render_from_sections else None)
+            if cached_full is not None:
+                print(f"Using cached full source: {cached_full.name}", flush=True)
+                render_from_sections = False
+                source = cached_full
             section_plan = {}
             if render_from_sections:
                 groups = sections.plan_sections(
@@ -461,6 +467,22 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
                             W, H = render_clips.ffprobe_dims(render_source)
                             loaded_sections[group_index] = (
                                 render_source, W, H)
+                        except ingest.SectionDownloadTimeout as exc:
+                            print(f"Section download stalled: {exc}", flush=True)
+                            print("Downloading the full source once and "
+                                  "rendering from it instead.", flush=True)
+                            source = sections.ensure_full_source(
+                                section_source, path)
+                            render_from_sections = False
+                            source_offset = 0.0
+                            section_key = None
+                            W, H = render_clips.ffprobe_dims(source)
+                            render_source = source
+                            key = digest([
+                                segment, data["words"],
+                                file_identity(source), options, brand,
+                                logo_identity, preview, source_offset,
+                                section_key])
                         except (Exception, SystemExit) as exc:
                             failed_sections[group_index] = str(exc)
                             render_errors.append(

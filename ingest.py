@@ -5,6 +5,7 @@ Local files are never copied. Long URL sources download audio for discovery
 selected video sections. Everything uses yt-dlp/ffprobe locally.
 """
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -16,17 +17,51 @@ LONG_BYTES = 8 * 1024**3
 AUDIO_EXTS = {".m4a", ".mp3", ".opus", ".ogg", ".wav", ".aac", ".flac", ".webm"}
 VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"}
 MIN_FREE_BYTES = 500 * 1024**2
+SECTION_TIMEOUT = 180
+FULL_TIMEOUT = 60 * 60
+
+
+class SectionDownloadTimeout(RuntimeError):
+    """A ranged section download produced no usable file before timing out."""
 
 
 def is_url(source):
     return urlparse(str(source)).scheme in {"http", "https"}
 
 
-def _run(cmd, **kwargs):
+def _kill_tree(proc):
+    """Stop a downloader and any ffmpeg child it started."""
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                           capture_output=True, text=True, check=False)
+        except OSError:
+            pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _run(cmd, timeout=None, **kwargs):
     kwargs.setdefault("capture_output", True)
     kwargs.setdefault("text", True)
     kwargs.setdefault("check", True)
-    return subprocess.run(cmd, **kwargs)
+    if timeout is None:
+        return subprocess.run(cmd, **kwargs)
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        stdout, stderr = proc.communicate()
+        raise subprocess.TimeoutExpired(
+            cmd, timeout, output=stdout, stderr=stderr)
+    if kwargs.get("check", True) and proc.returncode:
+        raise subprocess.CalledProcessError(
+            proc.returncode, cmd, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
 
 def _format_size(fmt, duration):
@@ -243,9 +278,28 @@ def download_discovery(url, workdir, meta=None, runner=None):
     return download_visual_discovery(url, workdir, runner=run), "video"
 
 
-def download_section(url, start, end, out_path, quality=1080, runner=None):
-    """Download one accurate, re-encoded video section with yt-dlp."""
+def _download(url, out_path, fmt, runner=None, timeout=None, extra=()):
+    """Run one yt-dlp download, converting a timeout into a clear error."""
     run = runner or _run
+    cmd = [sys.executable, "-m", "yt_dlp", "-f", fmt,
+           "--merge-output-format", "mp4", "--no-playlist",
+           "--force-overwrites", *extra, "-o", str(out_path), url]
+    try:
+        if runner is None:
+            run(cmd, timeout=timeout)
+        else:
+            run(cmd)
+    except subprocess.TimeoutExpired as exc:
+        raise SectionDownloadTimeout(
+            f"Downloader stalled for {timeout} seconds.") from exc
+    if not out_path.is_file() or out_path.stat().st_size <= 0:
+        raise RuntimeError(f"Download produced no file: {out_path.name}")
+    return out_path
+
+
+def download_section(url, start, end, out_path, quality=1080, runner=None,
+                     timeout=SECTION_TIMEOUT):
+    """Download one accurate video section with a bounded wait."""
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     for stale in (out_path, out_path.with_suffix(out_path.suffix + ".part")):
@@ -258,15 +312,43 @@ def download_section(url, start, end, out_path, quality=1080, runner=None):
                f"best[height<={int(quality)}]")
     else:
         fmt = "worst"
-    run([
-        sys.executable, "-m", "yt_dlp", "-f", fmt,
-        "--merge-output-format", "mp4", "--no-playlist", "--force-overwrites",
-        "--download-sections", f"*{float(start):.3f}-{float(end):.3f}",
-        "--force-keyframes-at-cuts",
-        "-o", str(out_path), url])
-    if not out_path.is_file() or out_path.stat().st_size <= 0:
-        raise RuntimeError(f"Section download produced no file: {out_path.name}")
-    return out_path
+    try:
+        return _download(
+            url, out_path, fmt, runner=runner, timeout=timeout,
+            extra=("--download-sections",
+                   f"*{float(start):.3f}-{float(end):.3f}",
+                   "--force-keyframes-at-cuts"))
+    except SectionDownloadTimeout as exc:
+        for stale in (out_path, out_path.with_suffix(out_path.suffix + ".part")):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
+        raise SectionDownloadTimeout(
+            f"Section download stalled for {float(start):.0f}-"
+            f"{float(end):.0f}s. The source may not support ranged "
+            "downloads.") from exc
+
+
+def download_full(url, out_path, quality=1080, runner=None,
+                  timeout=FULL_TIMEOUT):
+    """Download a complete source for sources where ranged cuts stall."""
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    for stale in (out_path, out_path.with_suffix(out_path.suffix + ".part")):
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+    if quality:
+        q = int(quality)
+        fmt = (f"bestvideo[height<={q}][protocol=https][vcodec^=avc1]+"
+               f"bestaudio[protocol=https][ext=m4a]/"
+               f"bestvideo[height<={q}][protocol=https]+"
+               f"bestaudio[protocol=https]/best[height<={q}]")
+    else:
+        fmt = "worst"
+    return _download(url, out_path, fmt, runner=runner, timeout=timeout)
 
 
 def check_disk(path, required_bytes):

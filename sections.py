@@ -13,6 +13,8 @@ SECTION_PAD = 10.0
 SECTION_GAP = 30.0
 SECTION_MAX = 600.0
 QUALITIES = (1080, 720, None)
+FULL_SOURCE_STEM = "source_full"
+FULL_SOURCE_EXTS = (".mp4", ".mkv", ".webm", ".mov")
 
 
 def _padded(start, end, duration, pad):
@@ -107,6 +109,37 @@ def _write_json(path, data):
     os.replace(temp, path)
 
 
+def find_full_source(workdir):
+    """Return a cached complete source, if one has already been downloaded."""
+    directory = Path(workdir)
+    for suffix in FULL_SOURCE_EXTS:
+        path = directory / (FULL_SOURCE_STEM + suffix)
+        if path.is_file() and path.stat().st_size > 0:
+            return path
+    return None
+
+
+def ensure_full_source(url, workdir, quality=1080, runner=None):
+    """Reuse or download a complete source as a ranged-download fallback."""
+    workdir = Path(workdir)
+    cached = find_full_source(workdir)
+    if cached is not None:
+        return cached
+    out_path = workdir / (FULL_SOURCE_STEM + ".mp4")
+    return ingest.download_full(url, out_path, quality=quality, runner=runner)
+
+
+def cleanup_full_source(workdir):
+    """Remove a downloaded full-source fallback after a successful render."""
+    path = find_full_source(workdir)
+    if path is None:
+        return
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
 def ensure_section(url, workdir, index, start, end, runner=None):
     """Return a cached section, downloading it on a version/range miss."""
     workdir = Path(workdir)
@@ -144,11 +177,17 @@ def ensure_section(url, workdir, index, start, end, runner=None):
             return section
         except Exception as exc:  # try the next quality, then surface it
             last_error = exc
+            if isinstance(exc, ingest.SectionDownloadTimeout):
+                break
             continue
     _write_json(meta_path, {
         "version": SECTION_VERSION, "source": source_key, "index": index,
         "start": start, "end": end, "quality": None, "failed": True,
     })
+    if isinstance(last_error, ingest.SectionDownloadTimeout):
+        raise ingest.SectionDownloadTimeout(
+            f"Section download stalled for {start:.0f}-{end:.0f}s: "
+            f"{last_error}") from last_error
     raise RuntimeError(
         f"Section download failed for {start:.0f}-{end:.0f}s: {last_error}")
 

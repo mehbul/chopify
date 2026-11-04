@@ -155,3 +155,33 @@ def test_download_section_uses_accurate_cut_flags(monkeypatch, tmp_path):
     assert "*100.000-160.000" in captured[0]
     assert "--force-keyframes-at-cuts" in captured[0]
     assert "bestvideo[height<=720]+bestaudio/best[height<=720]" in captured[0]
+
+
+def test_download_section_timeout_is_bounded(monkeypatch, tmp_path):
+    def run(cmd, **kwargs):
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+
+    monkeypatch.setattr(ingest, "_run", run)
+    out = tmp_path / "sections" / "section001.mp4"
+    with pytest.raises(ingest.SectionDownloadTimeout, match="stalled"):
+        ingest.download_section("https://example.com/v", 100, 160, out)
+
+
+def test_download_full_avoids_hls_and_ranged_sections(monkeypatch, tmp_path):
+    captured = []
+
+    def run(cmd, **kwargs):
+        captured.append(cmd)
+        out = Path(cmd[cmd.index("-o") + 1])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"full")
+        return FakeResult()
+
+    monkeypatch.setattr(ingest, "_run", run)
+    out = tmp_path / "source_full.mp4"
+    assert ingest.download_full(
+        "https://example.com/v", out, quality=1080) == out
+    fmt = captured[0][captured[0].index("-f") + 1]
+    assert "protocol=https" in fmt
+    assert "[vcodec^=avc1]" in fmt
+    assert "--download-sections" not in captured[0]
