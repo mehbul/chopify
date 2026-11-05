@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-05
+
 ### Added
 - Local browser dashboard with project review, progress, logs, previews, caption
   editing, candidate selection and downloadable exports.
@@ -74,6 +76,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Workflow, troubleshooting, local API, and machine-readable product documentation.
 - Static documentation website with canonical/social metadata, JSON-LD, sitemap
   and a GitHub Pages deployment workflow.
+- One-command installers for Windows and macOS/Linux, a contributor guide,
+  issue templates, and a 1280x640 social preview for the documentation site.
 
 ### Changed
 - Default minimum clip score is now 8.0 (was 6.5 heuristic / 8.0 LLM).
@@ -118,6 +122,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   successful renders; remaining sections still render and retry later.
 - Long-source preview playback no longer draws the source caption overlay over
   the already-rendered draft.
+- A stalled long-source section download falls back to a full-source download
+  and continues rendering with `source_offset=0`.
 
 ## [1.3.0] - 2026-09-06
 
@@ -140,5 +146,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`_grow_window`) between virality scoring and keyword search, both enforcing
   the complete-thought rule.
 
-[Unreleased]: https://github.com/mehbul/chopify/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/mehbul/chopify/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/mehbul/chopify/releases/tag/v1.4.0
 [1.3.0]: https://github.com/mehbul/chopify/releases/tag/v1.3.0

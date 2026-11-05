@@ -28,5 +28,5 @@
   "optional_models": {"semantic_search": {"provider": "local Ollama", "default_model": "nomic-embed-text", "endpoint": "http://127.0.0.1:11434/api/embed"}, "clip_selection": "local Ollama chat model"},
   "privacy": {"hosted_processing": false, "initial_model_downloads": true, "url_inputs_need_internet": true, "dashboard_binding": "127.0.0.1"},
   "not_included": ["social publishing", "scheduling", "cloud collaboration", "hosted processing", "translation", "bilingual captions", "dubbing", "speaker diarization", "guaranteed virality"],
-  "documentation_updated": "2026-11-03"
+  "documentation_updated": "2026-11-05"
 }

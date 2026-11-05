@@ -42,4 +42,4 @@
 - [License](https://github.com/mehbul/chopify/blob/main/LICENSE)
 - [Documentation website](https://mehbul.github.io/chopify/)
 
-Updated: 2026-11-03. This file is a factual navigation aid, not a search-engine requirement or ranking signal.
+Updated: 2026-11-05. This file is a factual navigation aid, not a search-engine requirement or ranking signal.

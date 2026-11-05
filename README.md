@@ -308,4 +308,4 @@ Issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) fo
 
 MIT — see [LICENSE](LICENSE). You can use, fork, and ship Chopify; attribution and a link back are appreciated.
 
-Maintained by [mehbul](https://github.com/mehbul). Last documentation update: **2026-11-04**.
+Maintained by [mehbul](https://github.com/mehbul). Last documentation update: **2026-11-05**.

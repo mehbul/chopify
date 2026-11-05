@@ -3,7 +3,7 @@ name: Documentation site
 on:
   push:
     branches: [main]
-    paths: ['docs/**', 'tools/build_site.py', 'README.md', 'llms.txt', 'assets/demo.gif', '.github/workflows/pages.yml']
+    paths: ['docs/**', 'tools/build_site.py', 'README.md', 'llms.txt', 'assets/demo.gif', 'assets/social-preview.png', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
