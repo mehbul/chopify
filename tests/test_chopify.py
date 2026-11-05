@@ -1160,3 +1160,13 @@ def test_cli_copies_partial_long_outputs_then_exits_nonzero(
     assert exc.value.code == 1
     assert (export / "001-clip.mp4").read_text(encoding="utf-8") == "rendered"
     assert (export / "001-clip.meta.json").is_file()
+
+
+def test_version_flag():
+    """--version prints the version and exits 0 without requiring a source or environment."""
+    result = subprocess.run(
+        [sys.executable, str(REPO / "chopify.py"), "--version"],
+        capture_output=True, text=True, cwd=REPO)
+    assert result.returncode == 0
+    assert "Chopify 1.4.0" in result.stdout
+    assert result.stderr == ""

@@ -95,6 +95,9 @@ YouTube downloads may also require Deno: `winget install DenoLand.Deno`. A prefl
 After installing dependencies, run with the virtual environment's Python (or activate it and use `python`):
 
 ```powershell
+# Print version (works with no video, ffmpeg, or network)
+python chopify.py --version
+
 # Local recording or online video
 python chopify.py "C:\Videos\podcast.mp4" --aspect 9:16
 python chopify.py "https://youtube.com/watch?v=VIDEO_ID"

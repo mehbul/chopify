@@ -142,7 +142,7 @@ class Studio:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ChopifyStudio/1.4"
+    server_version = "ChopifyStudio/1.4.0"
 
     @property
     def app(self):
