@@ -9,7 +9,7 @@ FILES = {"docs/index.html": "index.html", "docs/site.css": "site.css",
          "docs/product.json": "product.json", "llms.txt": "llms.txt",
          "assets/demo.gif": "demo.gif",
          "assets/social-preview.png": "social-preview.png"}
-GUIDES = ["README.md", "docs/WORKFLOWS.md", "docs/AGENT-API.md", "docs/TROUBLESHOOTING.md"]
+GUIDES = ["README.md", "docs/CLI.md", "docs/WORKFLOWS.md", "docs/AGENT-API.md", "docs/TROUBLESHOOTING.md"]
 
 
 def build(out):
