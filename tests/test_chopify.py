@@ -1170,3 +1170,13 @@ def test_version_flag():
     assert result.returncode == 0
     assert "Chopify 1.4.0" in result.stdout
     assert result.stderr == ""
+
+
+def test_list_styles_flag():
+    """--list-styles prints every caption preset and exits 0 with no source or environment."""
+    result = subprocess.run(
+        [sys.executable, str(REPO / "chopify.py"), "--list-styles"],
+        capture_output=True, text=True, cwd=REPO)
+    assert result.returncode == 0
+    assert result.stdout.splitlines() == list(render_clips.CAPTION_STYLES)
+    assert result.stderr == ""

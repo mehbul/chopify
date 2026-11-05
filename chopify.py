@@ -177,6 +177,8 @@ def main():
         prog="chopify",
         description="YouTube link -> scored, captioned clips. 100% local, free.")
     ap.add_argument("--version", action="version", version=f"Chopify {CHOPIFY_VERSION}")
+    ap.add_argument("--list-styles", action="store_true",
+                    help="print the caption style preset names and exit")
     ap.add_argument("url", nargs="?", help="local video path or yt-dlp-supported URL")
     ap.add_argument("--workdir", default="work", help="intermediate files dir")
     ap.add_argument("--aspect", default="16:9", choices=["16:9", "9:16", "1:1"],
@@ -233,6 +235,10 @@ def main():
     ap.add_argument("--device", choices=["cpu", "cuda", "auto"], default="cpu")
     render_clips.add_caption_arguments(ap)
     args = ap.parse_args()
+    if args.list_styles:
+        for name in render_clips.CAPTION_STYLES:
+            print(name)
+        return
     if not (args.url or args.batch or args.project):
         ap.error("provide a local video, URL, --batch file, or --project directory")
     if args.batch and (args.url or args.project):

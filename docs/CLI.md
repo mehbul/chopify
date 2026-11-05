@@ -49,6 +49,7 @@ also shows the value in the `default` preset where applicable.
 
 | Flag | Default | Accepted values and behavior | Example value |
 | --- | --- | --- | --- |
+| `--list-styles` | Not requested | Print every caption preset name, one per line, then exit before any source check or preflight; the output matches the values `--style` accepts. | No value |
 | `--style` | `default` | One of the named presets listed above. | `hormozi` |
 | `--caption-json` | No override | Path to a JSON caption-style object; explicit caption flags override its fields. | `"styles/captions.json"` |
 | `--words-per-cue` | Inherit (`3`) | Integer from `1` to `8`. | `2` |
@@ -102,6 +103,7 @@ than copying them into the single-project export directory.
 | Flag | Default | Accepted values and behavior | Example value |
 | --- | --- | --- | --- |
 | `-h`, `--help` | Not requested | Print usage and all current options, then exit. | No value |
+| `--version` | Not requested | Print `Chopify <version>` and exit before any source check or preflight; works with no video, ffmpeg, or network. | No value |
 | `--no-input` | Off | Never prompt; use supplied options and defaults. | No value |
 | `--no-preflight` | Off | Skip environment checks for ffmpeg, encoders, and Python packages; does not install or replace missing dependencies. | No value |
 
