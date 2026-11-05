@@ -24,6 +24,13 @@ import json
 from pathlib import Path
 
 import render_clips
+
+__version__ = "1.4.0"
+
+if "--version" in sys.argv:
+    print(f"chopify {__version__}")
+    raise SystemExit(0)
+
 import score_clips
 
 # Python packages the pipeline needs, with a fix hint per missing module.
@@ -174,6 +181,7 @@ def main():
     ap = argparse.ArgumentParser(
         prog="chopify",
         description="YouTube link -> scored, captioned clips. 100% local, free.")
+    ap.add_argument("--version", action="version", version=f"chopify {__version__}")
     ap.add_argument("url", nargs="?", help="local video path or yt-dlp-supported URL")
     ap.add_argument("--workdir", default="work", help="intermediate files dir")
     ap.add_argument("--aspect", default="16:9", choices=["16:9", "9:16", "1:1"],
