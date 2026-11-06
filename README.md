@@ -293,6 +293,7 @@ Whisper detects spoken language, and captions retain its transcription. The heur
 ## Developer and agent documentation
 
 - [Workflow guide and project layout](docs/WORKFLOWS.md)
+- [CLI flag reference](docs/CLI.md)
 - [CLI, Python interfaces, and local HTTP API](docs/AGENT-API.md)
 - [Setup and troubleshooting](docs/TROUBLESHOOTING.md)
 - [Machine-readable product facts](docs/product.json) and [llms.txt](llms.txt)

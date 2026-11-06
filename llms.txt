@@ -6,6 +6,7 @@
 
 - [Installation and overview](https://github.com/mehbul/chopify/blob/main/README.md): requirements, quickstart, examples, features, and limitations.
 - [Workflow guide](https://github.com/mehbul/chopify/blob/main/docs/WORKFLOWS.md): local input, batch, resume, any-length sources, long-source Studio previews, caption editing and styling, branding, semantic search, split-screen, and project files.
+- [CLI flag reference](https://github.com/mehbul/chopify/blob/main/docs/CLI.md): every `chopify.py` flag with defaults, accepted values, and examples.
 - [Agent and API reference](https://github.com/mehbul/chopify/blob/main/docs/AGENT-API.md): CLI, Python interfaces, JSON formats, and authenticated loopback HTTP endpoints.
 - [Troubleshooting](https://github.com/mehbul/chopify/blob/main/docs/TROUBLESHOOTING.md): ffmpeg, models, captions, CUDA, and failed jobs.
 - [Product facts](https://github.com/mehbul/chopify/blob/main/docs/product.json): machine-readable capabilities, requirements, licensing, and exclusions.
