@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `python chopify.py --version` prints the release version and exits 0 without
+  requiring a source, ffmpeg or network.
+- `python chopify.py --list-styles` prints the 13 caption preset names and
+  exits 0 before any source check or preflight.
+- `docs/CLI.md` documents every CLI flag, grouped by input, scoring/discovery,
+  captions, output, batch/project and diagnostics; linked from the README and
+  embedded in `llms-full.txt`.
+
 ## [1.4.0] - 2026-11-05
 
 ### Added

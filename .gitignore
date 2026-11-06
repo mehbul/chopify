@@ -17,3 +17,7 @@ clips/
 projects/
 _site/
 .pytest_cache/
+
+# local AI agent state
+.mimosa/
+.zcode/
