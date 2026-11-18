@@ -1180,3 +1180,42 @@ def test_list_styles_flag():
     assert result.returncode == 0
     assert result.stdout.splitlines() == list(render_clips.CAPTION_STYLES)
     assert result.stderr == ""
+
+
+def test_live_options_defaults():
+    import projects
+    options = projects.validate_options({})
+    assert options["live_buffer"] == 300
+    assert options["live_buffer_max_mb"] == 512
+    assert options["live_pre_roll"] == 30
+    assert options["live_tail"] == 5
+    assert options["live_window"] == 10
+    assert options["live_threshold"] == 8.0
+    assert options["live_cooldown"] == 60
+    assert options["live_max_clips"] == 10
+    assert options["live_no_chat"] is False
+    assert options["live_no_transcript"] is False
+    assert options["live_headers"] == []
+
+
+@pytest.mark.parametrize("key,value", [
+    ("live_buffer", 59), ("live_buffer", 3601),
+    ("live_buffer_max_mb", 31), ("live_pre_roll", 4),
+    ("live_tail", 61), ("live_window", 1), ("live_window", 61),
+    ("live_threshold", -1), ("live_threshold", 11),
+    ("live_cooldown", -1), ("live_max_clips", -1),
+])
+def test_live_options_reject_out_of_range(key, value):
+    import projects
+    with pytest.raises(ValueError):
+        projects.validate_options({key: value})
+
+
+def test_live_options_headers():
+    import projects
+    options = projects.validate_options({"live_headers": ["X-Key: abc", "Referer: https://x/"]})
+    assert options["live_headers"] == ["X-Key: abc", "Referer: https://x/"]
+    with pytest.raises(ValueError):
+        projects.validate_options({"live_headers": ["not-a-header"]})
+    with pytest.raises(ValueError):
+        projects.validate_options({"live_headers": "X-Key: abc"})

@@ -17,13 +17,21 @@ import sections
 import branding
 from captions import update_transcript
 
+LIVE_DEFAULTS = {
+    "live_buffer": 300, "live_buffer_max_mb": 512, "live_pre_roll": 30,
+    "live_tail": 5, "live_window": 10, "live_threshold": 8.0,
+    "live_cooldown": 60, "live_max_clips": 10, "live_no_chat": False,
+    "live_no_transcript": False, "live_headers": [],
+}
+
 DEFAULT_OPTIONS = {"aspect": "16:9", "style": "default", "tighten": False,
                    "loudnorm": False, "whisper_model": "medium", "device": "cpu",
                    "min_len": 15, "max_len": 300, "max_clips": None,
                    "min_score": 8.0, "preferred_len": None,
                    "llm": None, "search": None, "semantic": None,
                    "embed_model": "nomic-embed-text", "brand": None,
-                   "layout": "single", "centers": [0.25, 0.75], "caption": None}
+                   "layout": "single", "centers": [0.25, 0.75], "caption": None,
+                   **LIVE_DEFAULTS}
 
 
 def digest(value):
@@ -91,6 +99,32 @@ def validate_options(options):
     for key in ("tighten", "loudnorm"):
         if not isinstance(result[key], bool):
             raise ValueError(f"{key} must be true or false.")
+    live_int_ranges = {
+        "live_buffer": (60, 3600), "live_buffer_max_mb": (32, 8192),
+        "live_pre_roll": (5, 300), "live_tail": (0, 60),
+        "live_window": (2, 60), "live_cooldown": (0, 3600),
+        "live_max_clips": (0, 1000),
+    }
+    for key, (low, high) in live_int_ranges.items():
+        if isinstance(result[key], bool) or not isinstance(result[key], int) or not low <= result[key] <= high:
+            raise ValueError(f"{key} must be an integer from {low} to {high}.")
+    if (isinstance(result["live_threshold"], bool)
+            or not isinstance(result["live_threshold"], (int, float))
+            or not math.isfinite(result["live_threshold"])
+            or not 0 <= result["live_threshold"] <= 10):
+        raise ValueError("live_threshold must be between 0 and 10.")
+    for key in ("live_no_chat", "live_no_transcript"):
+        if not isinstance(result[key], bool):
+            raise ValueError(f"{key} must be true or false.")
+    headers = result["live_headers"]
+    if not isinstance(headers, (list, tuple)) or len(headers) > 20:
+        raise ValueError("live_headers must be a list of at most 20 headers.")
+    for header in headers:
+        if (not isinstance(header, str) or ":" not in header
+                or not header.split(":", 1)[0].strip()
+                or any(c in header for c in "\r\n")):
+            raise ValueError("Each live header must be 'Name: Value' without line breaks.")
+    result["live_headers"] = list(headers)
     if result["caption"] is not None:
         result["caption"] = branding.validate_caption(result["caption"])
     return result
