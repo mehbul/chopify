@@ -95,7 +95,7 @@ class SegmentBuffer:
         self.started_at = time.time()
         self.process = subprocess.Popen(
             self.ffmpeg_command(), stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE, text=True)
+            stderr=subprocess.DEVNULL)
         self._cleaner = threading.Thread(target=self._clean_loop, daemon=True)
         self._cleaner.start()
         return self

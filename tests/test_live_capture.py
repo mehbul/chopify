@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import time
 
 import pytest
@@ -75,3 +76,23 @@ def test_segment_buffer_cap(tmp_path):
         (tmp_path / f"segment{i:08d}.ts").write_bytes(b"x" * 100_000)
     buffer.cleanup()
     assert len(buffer.segments()) < 12
+
+
+def test_start_does_not_pipe_ffmpeg_stderr(tmp_path, monkeypatch):
+    captured = {}
+
+    class FakeProcess:
+        def poll(self):
+            return 0
+
+    def fake_popen(cmd, **kwargs):
+        captured.update(kwargs)
+        return FakeProcess()
+
+    monkeypatch.setattr(live_capture.subprocess, "Popen", fake_popen)
+    buffer = live_capture.SegmentBuffer(
+        tmp_path, "https://x/live.m3u8", {"live_headers": []})
+    buffer.start()
+    buffer.stop()
+    assert captured["stdout"] is subprocess.DEVNULL
+    assert captured["stderr"] is subprocess.DEVNULL
