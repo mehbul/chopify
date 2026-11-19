@@ -49,6 +49,23 @@ def test_render_playable_with_subtitles_and_brand(source, tmp_path, layout, prev
         assert out.with_suffix(".meta.json").is_file()
 
 
+def test_clamp_facecam_box():
+    import render_clips
+    assert render_clips.clamp_facecam_box([0.1, 0.6, 0.2, 0.3]) == (0.1, 0.6, 0.2, 0.3)
+    assert render_clips.clamp_facecam_box([0.95, 0.95, 0.5, 0.5]) == (0.95, 0.95, 0.05, 0.05)
+    assert render_clips.clamp_facecam_box([-2, 2, 0.01, 9]) == (0.0, 0.95, 0.05, 0.05)
+
+
+def test_resolve_facecam_box_manual_and_fallback(tmp_path):
+    import render_clips
+    box, warning = render_clips.resolve_facecam_box(
+        None, 1920, 1080, tmp_path, [0.05, 0.65, 0.25, 0.3])
+    assert box == (0.05, 0.65, 0.25, 0.3) and warning is None
+    box, warning = render_clips.resolve_facecam_box(
+        None, 1920, 1080, tmp_path, None, detector=object())
+    assert box == (0.0, 0.62, 0.26, 0.30) and warning
+
+
 def test_contain_fit_keeps_whole_frame_with_bars(tmp_path):
     source = tmp_path / "wide.mp4"
     subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
