@@ -29,7 +29,15 @@
     "auto_emphasis": true,
     "precedence": ["named preset", "brand preset", "project override"]
   },
-  "capabilities": ["live HLS/RTMP clipping with four-signal hype detection", "serial batch queue", "resumable projects", "automatic any-length ingest", "resumable 30-minute transcription chunks", "section-only long-URL rendering", "candidate review", "audio and visual evidence for speech-sparse or silent gameplay", "adaptive evidence weighting", "caption editing", "caption studio presets and word motion", "live caption preview", "automatic emphasis and emoji", "brand presets and logo", "keyword search", "optional local semantic search", "fixed two-panel podcast framing", "single-frame face tracking", "filler and silence removal"],
+  "video_types": {
+    "detection": "local signals: speech density, audio variability and bursts, visual value, cut rate, facecam, duration, source metadata",
+    "types": ["podcast", "gaming", "movie", "livestream", "interview", "tutorial", "music", "unknown"],
+    "formats": "built-in recipes per type plus user-created JSON formats in formats/<name>.json",
+    "format_controls": ["length band", "scoring profile", "caption style", "layout", "fit", "tighten", "loudnorm", "hook style", "live thresholds"],
+    "override": "explicit CLI/Studio/agent options win over format values; uncertain detections prompt only in interactive mode",
+    "optional_llm_tiebreak": "local Ollama chat model"
+  },
+  "capabilities": ["local video-type detection with reusable clipping formats", "live HLS/RTMP clipping with four-signal hype detection", "serial batch queue", "resumable projects", "automatic any-length ingest", "resumable 30-minute transcription chunks", "section-only long-URL rendering", "candidate review", "audio and visual evidence for speech-sparse or silent gameplay", "adaptive evidence weighting", "caption editing", "caption studio presets and word motion", "live caption preview", "automatic emphasis and emoji", "brand presets and logo", "keyword search", "optional local semantic search", "fixed two-panel podcast framing", "single-frame face tracking", "filler and silence removal"],
   "selection": {"default_min_score": 8.0, "returns_all_passing_clips": true, "default_length_range_seconds": [15, 300], "preferred_length_is_soft": true, "evidence": ["text", "audio", "visual"]},
   "long_sources": {"automatic": true, "thresholds": {"duration_seconds": 7200, "estimated_size_bytes": 8589934592, "unknown_duration": true}, "chunk_seconds": 1800, "overlap_seconds": 30, "section_pad_seconds": 10, "section_merge_gap_seconds": 30, "section_cap_seconds": 600, "studio_preview": "480p preview rendered from a downloaded section"},
   "optional_models": {"semantic_search": {"provider": "local Ollama", "default_model": "nomic-embed-text", "endpoint": "http://127.0.0.1:11434/api/embed"}, "clip_selection": "local Ollama chat model"},

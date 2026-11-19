@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Local video-type detection (podcast, gaming, movie, livestream, interview,
+  tutorial, music, unknown) with reusable clipping formats that set length,
+  scoring profile, captions, layout and live thresholds.
+- `--video-type`, `--format`, `--video-type-model` and `--list-formats` flags,
+  plus an interactive builder for custom formats when detection is uncertain.
+- Studio detection banner, format selector and **Build new format** action.
+- Live sessions and the agent interface accept type/format options.
+
 ### Fixed
 - Brief provider failures now name the specific agent and reason (for example,
   "claude found but not authenticated") instead of a generic error, and
