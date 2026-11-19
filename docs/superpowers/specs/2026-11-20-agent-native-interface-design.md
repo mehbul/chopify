@@ -60,17 +60,23 @@ Operations are exposed as argparse subcommands:
 | `project prepare --project DIR` | Run the prepare stage. |
 | `project render --project DIR [--pick 1,3] [--preview] [--out DIR]` | Render selected clips. |
 | `project wait --project DIR --timeout SECONDS` | Poll until a terminal status or timeout. |
-| `batch create --file PATH [--projects-dir DIR]` | Create a batch; return project ids and paths. |
-| `batch wait --root DIR --timeout SECONDS` | Poll a batch root until all projects are terminal. |
-| `live start --source URL [--root DIR] [--options-json '{...}']` | Start a live session in the background; return id and directory. |
+| `batch create --file PATH [--projects-dir DIR] [--action prepare\|render]` | Create and run each source synchronously; return per-source results. |
+| `batch wait --root DIR --timeout SECONDS` | Poll a batch root until all projects are settled. |
+| `live start --source URL [--root DIR] [--options-json '{...}']` | Start a detached live worker; return id and directory. |
 | `live status --id ID [--root DIR]` | Return session status, health, scores, triggers. |
-| `live stop --id ID [--root DIR]` | Stop a live session. |
+| `live stop --id ID [--root DIR]` | Stop a live session and wait for `stopped`. |
 
 `--projects-dir` and `--root` default to `projects`. A live session is read from
-`<root>/live/<id>/live_session.json`. `live start` mirrors the dashboard: it
-resolves the source, constructs `live.LiveSession`, starts `session.start()` on a
-daemon thread, and returns the id immediately. It does **not** call
-`live.run_live()`, which blocks for the life of the stream.
+`<root>/live/<id>/live_session.json`. Because each `agent.py` invocation is a
+short-lived process, `live start` cannot keep a thread alive: it spawns a
+detached `agent.py _live-worker` process (new process group on Windows,
+`start_new_session` on POSIX), redirects its output to
+`<root>/live/<id>/agent.log`, and waits for `live_session.json` to appear. To
+make this possible, `LiveSession.__init__` gains an optional `session_id`
+argument (default `None`, preserving existing behavior). Stopping is
+cross-process: `live stop` writes a `stop` file in the session directory, which
+`LiveSession._loop()` checks at the top of each iteration and answers by calling
+`self.stop()`. Neither change affects dashboard or CLI live sessions.
 
 `--options-json` is a JSON object validated with `projects.validate_options`
 (and `render_clips.validate_caption` for the `caption` field). Unknown keys,
@@ -135,20 +141,23 @@ NDJSON.
 ]}
 ```
 
-Schemas are generated from a single operation registry in `agent.py` so docs and
-runtime cannot drift. The registry is the source of truth for subcommand parsing,
-validation, event metadata, and the `describe` output. The skill references
-`describe` rather than hard-coding operation details.
+Schemas are generated from a single operation registry in `agent_contract.py`
+(import-light, no core modules) so docs and runtime cannot drift. The registry
+is the source of truth for subcommand parsing, validation, event metadata, and
+the `describe` output. Handlers live in `agent_ops.py`; `agent.py` only builds
+the parser, dispatches, and owns exit codes. The skill references `describe`
+rather than hard-coding operation details.
 
 ### 4. `wait` semantics
 
 `project wait` and `batch wait` poll project files on disk (no daemon). They
-accept `--timeout` and return the terminal state as a `result`; on deadline they
-emit `TIMEOUT` with the last observed state in `details`. A project is terminal
-when its status is `complete`, `failed`, or `interrupted`; `interrupted` is
-reported as a non-retryable state requiring an explicit retry. Poll interval is
-a constant. Agents that prefer to poll themselves can call `project get`
-instead.
+accept `--timeout` and return the settled state as a `result`; on deadline they
+emit `TIMEOUT` with the last observed state in `details`. A project is settled
+when its status is `complete`, `failed`, `interrupted`, or `review` — an agent
+must stop waiting when a job needs editorial review and then call
+`project get`. `interrupted` is reported as a state requiring an explicit retry.
+Poll interval is 0.5 seconds. Agents that prefer to poll themselves can call
+`project get` instead.
 
 ### 5. Distributable agent skill
 
