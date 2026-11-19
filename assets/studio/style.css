@@ -1032,3 +1032,23 @@ button:active {
     animation: none !important;
   }
 }
+
+#live-view {
+  margin-top: 1.5rem;
+}
+#live-form {
+  display: flex;
+  gap: 0.75rem;
+  align-items: end;
+  flex-wrap: wrap;
+}
+#live-clips {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 1rem;
+}
+.live-clip {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line, #ddd);
+  border-radius: 6px;
+}

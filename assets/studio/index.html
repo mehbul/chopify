@@ -20,6 +20,7 @@
         <span class="dot"></span> Processing stays on this computer
       </div>
       <button id="new-project" class="primary wide">＋ New project</button>
+      <button id="show-live" class="wide">● Live clipping</button>
       <div class="rail-heading">
         YOUR PROJECTS <span id="project-count">0</span>
       </div>
@@ -121,6 +122,29 @@
             <p>Choose your clips. Save MP4 + SRT.</p>
           </div>
         </div>
+      </section>
+      <section id="live-view" class="view" hidden>
+        <div class="intro">
+          <span class="eyebrow">WATCH · DETECT · CUT</span>
+          <h1>Catch it <em>live.</em></h1>
+          <p>
+            Paste a live stream URL. Chopify watches it locally, detects hype,
+            and saves finished captioned clips.
+          </p>
+        </div>
+        <form id="live-form" class="panel input-panel">
+          <div class="panel-title">
+            <h2>Start a live session</h2>
+            <span>HLS / RTMP URL OR LIVE PAGE</span>
+          </div>
+          <label for="live-source">Stream URL</label>
+          <input id="live-source" required placeholder="https://twitch.tv/channel or https://.../live.m3u8" />
+          <button id="live-start" type="submit" class="primary">Start live session</button>
+        </form>
+        <button id="live-stop" hidden>Stop session</button>
+        <div id="live-status" class="muted">Not running.</div>
+        <div id="live-score"></div>
+        <div id="live-clips"></div>
       </section>
       <section id="project-view" class="view" hidden>
         <div class="project-heading">

@@ -4,6 +4,7 @@ const state = {
   token: "",
   config: null,
   id: null,
+  liveId: null,
   detail: null,
   words: [],
   page: 0,
@@ -385,6 +386,7 @@ async function selectProject(id) {
   state.previewFile = null;
   state.pendingPreview = null;
   $("#new-view").hidden = true;
+  $("#live-view").hidden = true;
   $("#project-view").hidden = false;
   const detail = await api(`/api/projects/${id}`);
   if (state.id !== id) return;
@@ -693,6 +695,7 @@ async function run(action, preview = false) {
 $("#new-project").addEventListener("click", () => {
   state.id = null;
   $("#new-view").hidden = false;
+  $("#live-view").hidden = true;
   $("#project-view").hidden = true;
   $("#sources").focus();
   refreshProjects().catch((e) => notice(e.message, true));
@@ -917,6 +920,74 @@ $("#select-none").addEventListener("click", () => {
 $("#show-clips").addEventListener("click", () => setTab("clips"));
 $("#show-transcript").addEventListener("click", () => setTab("transcript"));
 $("#show-captions").addEventListener("click", () => setTab("captions"));
+
+function showLive() {
+  state.id = null;
+  $("#new-view").hidden = true;
+  $("#project-view").hidden = true;
+  $("#live-view").hidden = false;
+  refreshLive().catch((e) => notice(e.message, true));
+}
+$("#show-live").addEventListener("click", showLive);
+
+$("#live-form").addEventListener(
+  "submit",
+  safe(async (event) => {
+    event.preventDefault();
+    const source = $("#live-source").value.trim();
+    const result = await api("/api/live", {
+      source,
+      options: { aspect: "9:16" },
+    });
+    state.liveId = result.id;
+    $("#live-stop").hidden = false;
+    notice("Live session started. Hype moments will be saved automatically.");
+    await refreshLive();
+  }),
+);
+
+$("#live-stop").addEventListener(
+  "click",
+  safe(async () => {
+    await api(`/api/live/${state.liveId}/stop`, {});
+    state.liveId = null;
+    $("#live-stop").hidden = true;
+    await refreshLive();
+  }),
+);
+
+async function refreshLive() {
+  const data = await api("/api/live");
+  const sessions = data.sessions || [];
+  const detail = state.liveId
+    ? await api(`/api/live/${state.liveId}`)
+    : null;
+  $("#live-status").textContent = detail
+    ? `${detail.status} · ${Math.round(detail.stream_time)}s · ${detail.triggers.length} clips`
+    : sessions.length
+      ? `${sessions.length} session(s) on disk`
+      : "Not running.";
+  const scores = detail?.recent_scores || [];
+  $("#live-score").textContent = scores.length
+    ? `score ${Number(scores[scores.length - 1]).toFixed(2)}`
+    : "";
+  const clips = $("#live-clips");
+  clips.replaceChildren();
+  for (const record of detail?.triggers || []) {
+    const row = document.createElement("div");
+    row.className = "live-clip";
+    row.textContent = `#${record.id} · ${Number(record.start).toFixed(1)}s-${Number(record.end).toFixed(1)}s · ${record.score}`;
+    const video = record.files?.mp4;
+    if (video && state.liveId) {
+      const link = document.createElement("a");
+      const name = basename(video);
+      link.href = `/media/live/${state.liveId}/clips/${encodeURIComponent(name)}`;
+      link.textContent = " play";
+      row.append(link);
+    }
+    clips.append(row);
+  }
+}
 $("#caption-form").addEventListener("input", () => syncCaption());
 $("#caption-preset").addEventListener("change", (event) =>
   applyCaptionPreset(event.target.value),
@@ -998,6 +1069,7 @@ setInterval(async () => {
   polling = true;
   try {
     await refreshProjects();
+    if (state.liveId) refreshLive().catch(() => {});
     if (state.id && state.busy) {
       const id = state.id,
         detail = await api(`/api/projects/${id}`);
