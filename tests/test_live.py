@@ -22,6 +22,19 @@ def _bare_session(tmp_path):
     return session
 
 
+def test_live_session_parses_brief(tmp_path, monkeypatch):
+    import campaign
+    import live
+    from live_capture import LiveSource
+
+    monkeypatch.setattr(campaign, "parse_brief",
+                        lambda text, *a, **k: {"must_mention": ["night mode"], "banned": []})
+    source = LiveSource("https://x/l.m3u8", "hls", "generic", "passthrough", [])
+    session = live.LiveSession(source, {}, tmp_path, brief_text="show night mode")
+    assert session.rules["must_mention"] == ["night mode"]
+    assert (session.dir / "brief_rules.json").exists()
+
+
 def test_trigger_conditions(tmp_path):
     session = _bare_session(tmp_path)
     assert not session._allowed(7.9, 100.0)

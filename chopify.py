@@ -301,7 +301,8 @@ def main():
         live_options["caption"] = caption
         if live_options.get("brand"):
             live_options["brand"] = str(Path(live_options["brand"]).resolve())
-        live.run_live(args.live, live_options, Path(args.projects_dir).resolve())
+        live.run_live(args.live, live_options, Path(args.projects_dir).resolve(),
+                      brief_text=brief_text)
         return
     if not (args.url or args.batch or args.project):
         ap.error("provide a local video, URL, --batch file, or --project directory")

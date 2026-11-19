@@ -20,7 +20,7 @@ RIGHTS_NOTICE = (
 
 
 class LiveSession:
-    def __init__(self, source, options, root):
+    def __init__(self, source, options, root, brief_text=None):
         self.id = uuid.uuid4().hex[:12]
         self.source = source
         self.options = projects.validate_options(options)
@@ -37,6 +37,13 @@ class LiveSession:
         self.last_trigger = None
         self._stop = threading.Event()
         self._on_log = None
+        self.rules = None
+        if brief_text:
+            import campaign
+            self.rules = campaign.parse_brief(brief_text)
+            campaign.save_rules(self.dir, self.rules)
+            if self.rules.get("warning"):
+                self._log(f"Brief warning: {self.rules['warning']}")
         self._analyzers_started = False
         self.buffer = None
         self.analyzers = []
@@ -74,6 +81,18 @@ class LiveSession:
         if self.last_trigger is not None and now - self.last_trigger < self.options["live_window"] / 2:
             return False
         return True
+
+    def _brief_allows(self, transcript, now):
+        if not self.rules:
+            return True
+        from campaign import _matches
+        words = list(transcript.words) if transcript else []
+        text = " ".join(str(w.get("word", "")).lower() for w in words
+                        if now - 10 <= w.get("start", 0) <= now)
+        if any(b in text for b in self.rules.get("banned", [])):
+            return False
+        return all(_matches(text, phrase)
+                   for phrase in self.rules.get("must_mention", []))
 
     def start(self):
         self._log(RIGHTS_NOTICE)
@@ -117,24 +136,27 @@ class LiveSession:
             self.recent_scores.append(result["score"])
             self.recent_scores = self.recent_scores[-60:]
             if probe is not None and self._allowed(result["score"], self.stream_time):
-                self.last_trigger = self.stream_time
-                self._log(f"Hype detected: score={result['score']}")
                 transcript = next(
                     (analyzer for _, analyzer in self.analyzers
                      if isinstance(analyzer, live_signals.TranscriptAnalyzer)), None)
-                record = self.writer.write(
-                    live_clips.Trigger(self.last_trigger, result["score"], result["signals"]),
-                    self.options, probe,
-                    list(transcript.words) if transcript else [],
-                    self.buffer.window(
-                        max(0.0, self.last_trigger - self.options["live_buffer"]),
-                        self.last_trigger + self.options["live_tail"]))
-                self.records.append(record)
-                if record.error:
-                    self.errors.append(record.error)
-                    self._log(f"Clip failed: {record.error}")
+                if self.rules and not self._brief_allows(transcript, self.stream_time):
+                    self._log("Brief rules not met; skipping clip.")
                 else:
-                    self._log(f"Clip saved: {record.id}")
+                    self.last_trigger = self.stream_time
+                    self._log(f"Hype detected: score={result['score']}")
+                    record = self.writer.write(
+                        live_clips.Trigger(self.last_trigger, result["score"], result["signals"]),
+                        self.options, probe,
+                        list(transcript.words) if transcript else [],
+                        self.buffer.window(
+                            max(0.0, self.last_trigger - self.options["live_buffer"]),
+                            self.last_trigger + self.options["live_tail"]))
+                    self.records.append(record)
+                    if record.error:
+                        self.errors.append(record.error)
+                        self._log(f"Clip failed: {record.error}")
+                    else:
+                        self._log(f"Clip saved: {record.id}")
             self._save()
             if not self.buffer.alive:
                 self.status = "stopped"
@@ -159,10 +181,10 @@ def _channel(url):
     return path.split("/")[0] if path else ""
 
 
-def run_live(url, options, root, on_log=None):
+def run_live(url, options, root, on_log=None, brief_text=None):
     """Start a live session and block until it stops."""
     source = live_capture.resolve_live_source(url, options)
-    session = LiveSession(source, options, root)
+    session = LiveSession(source, options, root, brief_text=brief_text)
     session._on_log = on_log
     session.start()
     return session
