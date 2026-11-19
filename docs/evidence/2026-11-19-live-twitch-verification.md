@@ -61,13 +61,13 @@ Rendered artifacts (copied to `media/` as evidence):
 
 | File | Size |
 | --- | --- |
-| `live-clip-fullframe.mp4` | 2,702,361 bytes (H.264 1080x1920, AAC) |
-| `live-clip-fullframe.png` | 347,430 bytes |
-| `live-clip-fullframe.meta.json` | 287 bytes |
+| `live-clip-gameplay.mp4` | 1,657,212 bytes (H.264 1080x1920, AAC) |
+| `live-clip-gameplay.png` | 396,491 bytes |
+| `live-clip-gameplay.meta.json` | 282 bytes |
 | `clip.srt` | 0 bytes (transcript disabled in this run) |
 
-- [Rendered clip](media/live-clip-fullframe.mp4) · [Poster frame](media/live-clip-fullframe.png) ·
-  [Clip metadata](media/live-clip-fullframe.meta.json) · [Session state](media/session.json)
+- [Rendered clip](media/live-clip-gameplay.mp4) · [Poster frame](media/live-clip-gameplay.png) ·
+  [Clip metadata](media/live-clip-gameplay.meta.json) · [Session state](media/session.json)
 
 ### Full-frame follow-up
 
@@ -77,7 +77,10 @@ out. A `--fit contain` mode was added and tested (real ffmpeg test in
 `tests/test_render_integration.py`). The clip in `media/` is that full-frame
 render from the same captured gameplay window (`windows/ebffba8b752b.mp4`):
 the complete 16:9 frame is scaled into 9:16 with black bars, and nothing is
-cropped. The earlier cropped clip was removed.
+cropped. The earlier cropped clip was removed. The source window ran into a
+Twitch commercial break near its end, so the published demo uses only the first
+9 seconds of gameplay — a frame-by-frame check confirms there is no ad footage
+in the final clip.
 
 ffmpeg reported successful 9:16 renders, e.g.:
 `SAVED .../clips/clip.mp4 (9:16 1080x1920, speaker-tracked) + poster clip.png + clip.meta.json`
