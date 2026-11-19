@@ -38,6 +38,10 @@ for signals, session files, and rights notes.
 | `--live-no-chat` | off | Disable the chat signal. | (flag) |
 | `--live-no-transcript` | off | Disable the Whisper signal. | (flag) |
 | `--live-header` | none | Repeatable `Name: Value` ffmpeg header, e.g. a needed `Referer`. | `"Referer: https://example.com/"` |
+| `--brief` | none | Campaign requirements text; a local LLM extracts rules and only matching clips are kept. | `"Must mention: price. Avoid: spoilers. 15-30s, 9:16"` |
+| `--brief-file` | none | Path to a `.txt`/`.md` file containing the brief. Conflicts with `--brief`. | `"briefs/campaign.md"` |
+| `--brief-provider` | auto | `ollama`, `claude`, `codex`, or `hermes`. Auto-detected from installed tools by default. | `claude` |
+| `--brief-command` | none | Custom local command template with `{prompt}` for other agents. | `"my-llm --ask {prompt}"` |
 
 ## Scoring and discovery
 

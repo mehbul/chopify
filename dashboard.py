@@ -135,11 +135,11 @@ class Studio:
             state.update(status="failed", error=str(exc))
             projects.save_project(path, state)
 
-    def start_live(self, source, options):
+    def start_live(self, source, options, brief_text=None):
         import live
         from live_capture import resolve_live_source
         resolved = resolve_live_source(source, options)
-        session = live.LiveSession(resolved, options, self.root)
+        session = live.LiveSession(resolved, options, self.root, brief_text=brief_text)
         with self.live_lock:
             self.live_sessions[session.id] = session
         thread = threading.Thread(target=session.start,
@@ -304,7 +304,12 @@ class Handler(BaseHTTPRequestHandler):
                     if not isinstance(source, str) or not source.strip():
                         raise ValueError("Provide a live source URL.")
                     options = projects.validate_options(body.get("options", {}))
-                    return self.send_json({"id": self.app.start_live(source.strip(), options).id}, 201)
+                    brief_text = body.get("brief")
+                    if brief_text is not None and not isinstance(brief_text, str):
+                        raise ValueError("Brief must be text.")
+                    return self.send_json(
+                        {"id": self.app.start_live(
+                            source.strip(), options, brief_text=brief_text).id}, 201)
                 if len(parts) == 4 and parts[:2] == ["api", "live"] and parts[3] == "stop":
                     self.app.stop_live(parts[2])
                     return self.send_json({"ok": True})
@@ -315,9 +320,17 @@ class Handler(BaseHTTPRequestHandler):
                     if not isinstance(sources, list) or not 1 <= len(sources) <= 100 or any(not isinstance(s, str) or not s.strip() for s in sources):
                         raise ValueError("Provide 1 to 100 sources.")
                     options = projects.validate_options(body.get("options", {}))
+                    brief_text = body.get("brief")
+                    if brief_text is not None and not isinstance(brief_text, str):
+                        raise ValueError("Brief must be text.")
                     result = []
                     for source in sources:
                         state = projects.create_project(self.app.root, source, options)
+                        if brief_text and brief_text.strip():
+                            import campaign
+                            campaign.save_rules(
+                                projects.project_path(self.app.root, state["id"]),
+                                campaign.parse_brief(brief_text))
                         self.app.enqueue(state["id"], "prepare")
                         result.append(state)
                     return self.send_json({"projects": result}, 201)

@@ -575,13 +575,16 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
         raise
 
 
-def run_batch(sources, root, options, runner=None, **kwargs):
+def run_batch(sources, root, options, runner=None, brief_text=None, **kwargs):
     if not isinstance(sources, list) or not sources or any(not isinstance(s, str) for s in sources):
         raise ValueError("Batch input must be a non-empty JSON list of video paths or URLs.")
     results = []
     for source in sources:
         state = create_project(root, source, options)
         path = project_path(root, state["id"])
+        if brief_text:
+            import campaign
+            campaign.save_rules(path, campaign.parse_brief(brief_text))
         try:
             result = (runner or run_project)(path, **kwargs)
             results.append({"id": state["id"], "source": source, "status": result["status"]})

@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a file instead of an undrained pipe.
 
 ### Added
+- Campaign brief clipping: paste requirements in Studio or via `--brief` and a
+  local LLM agent (Ollama, Claude, Codex, Hermes, or custom command) extracts
+  structured rules into `brief_rules.json`. Batch and live clips are filtered
+  and ranked by those rules, with a keyword fallback when no agent is available.
 - Gaming `stacked` layout: facecam above gameplay with captions at the seam,
   available in batch and live modes from CLI and Studio. `--facecam-box` sets an
   explicit normalized rectangle; auto-detection is used when it is omitted.

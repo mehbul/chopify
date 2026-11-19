@@ -64,6 +64,12 @@
             One source per line. Local files stay in place. URLs download to
             their project folder.
           </p>
+          <label for="brief-text">Campaign brief (optional)</label>
+          <textarea
+            id="brief-text"
+            rows="5"
+            placeholder="Paste campaign requirements here. Chopify uses a local LLM to extract rules and cut only matching moments."
+          ></textarea>
           <div class="form-grid">
             <label
               >Format<select id="new-aspect">
@@ -139,6 +145,9 @@
           </div>
           <label for="live-source">Stream URL</label>
           <input id="live-source" required placeholder="https://twitch.tv/channel or https://.../live.m3u8" />
+          <label for="live-brief">Campaign brief (optional)</label>
+          <textarea id="live-brief" rows="4"
+            placeholder="Paste requirements; chopify will only save clips that match."></textarea>
           <button id="live-start" type="submit" class="primary">Start live session</button>
         </form>
         <button id="live-stop" hidden>Stop session</button>

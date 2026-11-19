@@ -728,7 +728,8 @@ $("#create-form").addEventListener(
         whisper_model: $("#new-model").value,
         style: $("#new-style").value,
       };
-      const result = await api("/api/batch", { sources, options });
+      const brief = ($("#brief-text")?.value || "").trim();
+      const result = await api("/api/batch", { sources, options, brief });
       await selectProject(result.projects[0].id);
       notice(
         `${sources.length} project${sources.length === 1 ? "" : "s"} queued for review.`,
@@ -949,9 +950,11 @@ $("#live-form").addEventListener(
   safe(async (event) => {
     event.preventDefault();
     const source = $("#live-source").value.trim();
+    const brief = ($("#live-brief")?.value || "").trim();
     const result = await api("/api/live", {
       source,
       options: { aspect: "9:16" },
+      brief,
     });
     state.liveId = result.id;
     $("#live-stop").hidden = false;

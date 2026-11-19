@@ -147,7 +147,7 @@ def test_live_routes(server, monkeypatch, tmp_path):
     session = _fake_live_session(tmp_path, "https://x/l.m3u8", {
         "live_no_chat": True, "live_no_transcript": True})
 
-    def fake_start_live(source, options):
+    def fake_start_live(source, options, brief_text=None):
         httpd.app.live_sessions[session.id] = session
         return session
 

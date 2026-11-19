@@ -3,6 +3,17 @@
 Chopify processes local recordings or supported video URLs into short, captioned
 clips. All transcription, scoring, editing, and rendering run on your computer.
 
+## Cut clips for a campaign brief
+
+Paste the campaign's requirements into the **Campaign brief** box in Studio (or
+use `--brief` / `--brief-file` in the CLI). Chopify asks a locally installed LLM
+agent — Ollama, Claude, Codex, Hermes, or a custom command — to turn the messy
+brief into structured rules saved as `brief_rules.json` in the project or live
+session folder. Clips containing banned phrases are dropped, must-mention topics
+are required, and the remaining candidates are ranked by how well they serve the
+brief. If no agent is installed, chopify falls back to keyword rules and tells
+you so. See [CLI reference](CLI.md#live-settings) for the flags.
+
 ## Review a video in Studio
 
 1. Run `python dashboard.py` and open the printed `127.0.0.1` address.
