@@ -10,11 +10,11 @@
 
 <p align="center"><b>Live clipping — full-frame vertical clip cut from a real Twitch stream</b></p>
 <p align="center">
-  <a href="https://github.com/mehbul/chopify/blob/main/docs/evidence/media/clip.mp4">
-    <img src="docs/evidence/media/clip.png" width="320" alt="Live-clipped full-frame vertical clip from a Twitch stream">
+  <a href="https://github.com/mehbul/chopify/blob/main/docs/evidence/media/live-clip-fullframe.mp4">
+    <img src="docs/evidence/media/live-clip-fullframe.png?v=2" width="320" alt="Live-clipped full-frame vertical clip from a Twitch stream">
   </a>
 </p>
-<p align="center"><a href="https://github.com/mehbul/chopify/blob/main/docs/evidence/media/clip.mp4">Watch the live-clipping demo clip →</a></p>
+<p align="center"><a href="https://github.com/mehbul/chopify/blob/main/docs/evidence/media/live-clip-fullframe.mp4">Watch the live-clipping demo clip →</a></p>
 
 <p align="center">
   <a href="#install-in-one-command"><b>Install</b></a> ·

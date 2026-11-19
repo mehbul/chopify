@@ -61,10 +61,13 @@ Rendered artifacts (copied to `media/` as evidence):
 
 | File | Size |
 | --- | --- |
-| `clip.mp4` | 2,702,361 bytes (H.264 1080x1920, AAC) |
-| `clip.png` | 347,430 bytes |
-| `clip.meta.json` | 287 bytes |
+| `live-clip-fullframe.mp4` | 2,702,361 bytes (H.264 1080x1920, AAC) |
+| `live-clip-fullframe.png` | 347,430 bytes |
+| `live-clip-fullframe.meta.json` | 287 bytes |
 | `clip.srt` | 0 bytes (transcript disabled in this run) |
+
+- [Rendered clip](media/live-clip-fullframe.mp4) · [Poster frame](media/live-clip-fullframe.png) ·
+  [Clip metadata](media/live-clip-fullframe.meta.json) · [Session state](media/session.json)
 
 ### Full-frame follow-up
 
@@ -75,9 +78,6 @@ out. A `--fit contain` mode was added and tested (real ffmpeg test in
 render from the same captured gameplay window (`windows/ebffba8b752b.mp4`):
 the complete 16:9 frame is scaled into 9:16 with black bars, and nothing is
 cropped. The earlier cropped clip was removed.
-
-- [Rendered clip](media/clip.mp4) · [Poster frame](media/clip.png) ·
-  [Clip metadata](media/clip.meta.json) · [Session state](media/session.json)
 
 ffmpeg reported successful 9:16 renders, e.g.:
 `SAVED .../clips/clip.mp4 (9:16 1080x1920, speaker-tracked) + poster clip.png + clip.meta.json`
