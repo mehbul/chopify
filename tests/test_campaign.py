@@ -67,6 +67,37 @@ def test_score_clips_applies_brief_rules(tmp_path, monkeypatch):
     assert segments == []
 
 
+def test_brief_provider_none():
+    rules = campaign.parse_brief("must include: camera", provider="none")
+    assert rules["source"] == "heuristic"
+    assert "keyword" in rules["warning"]
+
+
+def test_brief_failure_reason(monkeypatch):
+    monkeypatch.setattr(campaign, "detect_provider", lambda *a, **k: (
+        "claude", {"command": "claude -p {prompt}",
+                   "unavailable_reason": "claude found but not authenticated or not runnable"}))
+    rules = campaign.parse_brief("must include: camera")
+    assert rules["source"] == "heuristic"
+    assert "claude" in rules["warning"]
+
+
+def test_detect_provider_reports_unavailable(monkeypatch):
+    def no_ollama(*args, **kwargs):
+        raise OSError("ollama unavailable")
+
+    class FailedProbe:
+        returncode = 1
+
+    monkeypatch.setattr(campaign.urllib.request, "urlopen", no_ollama)
+    monkeypatch.setattr(campaign.shutil, "which",
+                        lambda name: "/usr/bin/claude" if name == "claude" else None)
+    monkeypatch.setattr(campaign.subprocess, "run", lambda *a, **k: FailedProbe())
+    name, descriptor = campaign.detect_provider()
+    assert name == "claude"
+    assert "not authenticated" in descriptor["unavailable_reason"]
+
+
 def test_apply_rules_filters_and_scores(tmp_path, monkeypatch):
     words = [
         {"word": "night", "start": 0, "end": 0.5},

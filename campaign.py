@@ -41,8 +41,11 @@ def detect_provider(explicit=None, command=None):
                                    timeout=5, check=False)
             if probe.returncode == 0:
                 return name, PROVIDERS[name]
-        except Exception:
-            continue
+            return name, dict(PROVIDERS[name],
+                              unavailable_reason=f"{name} found but not authenticated or not runnable")
+        except Exception as exc:
+            return name, dict(PROVIDERS[name],
+                              unavailable_reason=f"{name} found but not runnable: {exc}")
     return None, None
 
 
@@ -154,7 +157,11 @@ def parse_brief(text, provider=None, command=None):
     if not isinstance(text, str) or not text.strip():
         raise ValueError("Provide a campaign brief.")
     text = text.strip()[:8000]
-    name, _ = detect_provider(provider, command)
+    if provider == "none":
+        rules = _heuristic_parse(text)
+        rules["warning"] = "Brief parsed with keyword rules (provider disabled)."
+        return rules
+    name, descriptor = detect_provider(provider, command)
     prompt = (
         "Read this campaign brief and reply with ONLY one JSON object with "
         "fields: goal (string), must_mention (array of short phrases), "
@@ -162,6 +169,8 @@ def parse_brief(text, provider=None, command=None):
         "(int seconds), aspect (one of 16:9, 9:16, 1:1), cta (string), "
         "tone (string). Infer sensible values when absent.\n\nBRIEF:\n" + text)
     try:
+        if descriptor and descriptor.get("unavailable_reason"):
+            raise RuntimeError(descriptor["unavailable_reason"])
         raw = ask_llm(prompt, provider, command)
         data = parse_json_response(raw)
         return _normalize(data, "llm", name or "custom", text)

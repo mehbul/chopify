@@ -198,7 +198,7 @@ def main():
     ap.add_argument("--brief-file", default=None,
                     help="path to a .txt/.md campaign brief")
     ap.add_argument("--brief-provider", default=None,
-                    choices=["ollama", "claude", "codex", "hermes"],
+                    choices=["ollama", "claude", "codex", "hermes", "none"],
                     help="local LLM agent for brief parsing (auto-detected by default)")
     ap.add_argument("--brief-command", default=None,
                     help="custom command template for the local LLM, with {prompt}")

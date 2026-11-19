@@ -975,6 +975,12 @@ $("#live-stop").addEventListener(
   }),
 );
 
+const LIVE_NEXT_ACTION = {
+  ok: "Watching",
+  degraded: "Waiting for segments",
+  failed: "Check the URL or restart Studio",
+};
+
 async function refreshLive() {
   const data = await api("/api/live");
   const sessions = data.sessions || [];
@@ -986,6 +992,12 @@ async function refreshLive() {
     : sessions.length
       ? `${sessions.length} session(s) on disk`
       : "Not running.";
+  const health = detail?.health;
+  $("#live-health").textContent = health
+    ? `${health.state} · segment ${health.last_segment_age}s · ${health.restarts} restarts · `
+      + `${LIVE_NEXT_ACTION[health.state] || "Watching"} · brief `
+      + `${health.brief_source || "none"}/${health.brief_provider || "none"}`
+    : "";
   const scores = detail?.recent_scores || [];
   $("#live-score").textContent = scores.length
     ? `score ${Number(scores[scores.length - 1]).toFixed(2)}`
