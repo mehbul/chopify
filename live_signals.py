@@ -2,9 +2,20 @@
 from __future__ import annotations
 
 import math
+import re
+import socket
 import statistics
+import subprocess
 import threading
+import time
 from collections import defaultdict, deque
+
+import numpy as np
+
+import download_and_transcribe as dt
+import evidence
+import score_clips
+import visual
 
 DEFAULT_WEIGHTS = {"audio": 0.30, "visual": 0.25,
                    "transcript": 0.25, "chat": 0.20}
@@ -78,18 +89,6 @@ class HypeDetector:
                     for name, value in signals.items()) / total_weight
         return {"score": round(score, 4), "signals": signals}
 
-
-import re
-import socket
-import subprocess
-import time
-
-import numpy as np
-
-import evidence
-import visual
-import score_clips
-import download_and_transcribe as dt
 
 CHAT_WORDS = ("let's go", "no way", "insane", "clutch", "hype", "w", "gg", "crazy")
 

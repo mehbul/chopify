@@ -26,8 +26,8 @@ of 4-second segments, and finished clips in `clips/`. The buffer is capped by
 - **Transcript** hook and reaction cues from rolling Whisper windows; disable
   with `--live-no-transcript`.
 - **Chat** message rate and hype words via anonymous Twitch IRC; disable with
-  `--live-no-chat`. YouTube chat uses the optional `CHOPIFY_YOUTUBE_CHAT_KEY`
-  environment variable and is skipped when it is absent.
+  `--live-no-chat`. Other platforms have no chat connector in v1, so the chat
+  signal is skipped for them and the other signals are renormalized.
 
 Available signals are weighted (audio 0.30, visual 0.25, transcript 0.25, chat
 0.20) and renormalized, so silent streams and streams without chat still work.
