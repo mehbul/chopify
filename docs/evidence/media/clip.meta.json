@@ -1,6 +1,6 @@
 {
-  "title": "Clip #shorts",
-  "description": "Clip - full video on the channel.\n#shorts #reels #fyp #viral #podcast",
+  "title": "Full screen live clip #shorts",
+  "description": "Full screen live clip - full video on the channel.\n#shorts #reels #fyp #viral #podcast",
   "hashtags": [
     "#shorts",
     "#reels",
@@ -8,6 +8,6 @@
     "#viral"
   ],
   "score": null,
-  "start": 0.0,
-  "end": 20.0
+  "start": 0,
+  "end": 18.0
 }

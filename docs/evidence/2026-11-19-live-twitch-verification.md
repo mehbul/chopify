@@ -57,14 +57,24 @@ run duration       100 s
 | Session errors | none |
 | ffmpeg capture log | empty (no errors) |
 
-Rendered artifacts from the final clip (copied to `media/` as evidence):
+Rendered artifacts (copied to `media/` as evidence):
 
 | File | Size |
 | --- | --- |
-| `clip.mp4` | 7,807,064 bytes (H.264 1080x1920, AAC) |
-| `clip.png` | 766,944 bytes |
-| `clip.meta.json` | 255 bytes |
+| `clip.mp4` | 2,702,361 bytes (H.264 1080x1920, AAC) |
+| `clip.png` | 347,430 bytes |
+| `clip.meta.json` | 287 bytes |
 | `clip.srt` | 0 bytes (transcript disabled in this run) |
+
+### Full-frame follow-up
+
+The original 9:16 clips used the default `cover` mode, which crops a 608px
+vertical slice from a 1920x1080 gameplay frame — most of the screen was left
+out. A `--fit contain` mode was added and tested (real ffmpeg test in
+`tests/test_render_integration.py`). The clip in `media/` is that full-frame
+render from the same captured gameplay window (`windows/ebffba8b752b.mp4`):
+the complete 16:9 frame is scaled into 9:16 with black bars, and nothing is
+cropped. The earlier cropped clip was removed.
 
 - [Rendered clip](media/clip.mp4) · [Poster frame](media/clip.png) ·
   [Clip metadata](media/clip.meta.json) · [Session state](media/session.json)

@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a file instead of an undrained pipe.
 
 ### Added
+- `--fit contain` renders vertical clips without cropping: the whole 16:9 frame
+  is scaled into 9:16 with black bars, useful for gameplay and screen captures.
+  Live sessions forward the setting through CLI and Studio options.
 - Live clipping from HLS/RTMP URLs: `chopify --live URL` watches a stream with a
   rolling segment buffer, scores audio, visual motion, transcript and chat hype
   in real time, and automatically saves finished 9:16 captioned clips. A Live

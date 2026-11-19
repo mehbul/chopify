@@ -8,6 +8,14 @@
   <img src="assets/demo.gif" alt="A Chopify clip with word-by-word burned-in captions" width="720">
 </p>
 
+<p align="center"><b>Live clipping — full-frame vertical clip cut from a real Twitch stream</b></p>
+<p align="center">
+  <video width="320" controls playsinline poster="https://raw.githubusercontent.com/mehbul/chopify/main/docs/evidence/media/clip.png">
+    <source src="https://raw.githubusercontent.com/mehbul/chopify/main/docs/evidence/media/clip.mp4" type="video/mp4">
+    <a href="https://github.com/mehbul/chopify/blob/main/docs/evidence/media/clip.mp4">Watch the live-clipping demo clip</a>
+  </video>
+</p>
+
 <p align="center">
   <a href="#install-in-one-command"><b>Install</b></a> ·
   <a href="https://mehbul.github.io/chopify/"><b>Live tour</b></a> ·
