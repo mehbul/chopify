@@ -397,6 +397,14 @@ def main():
         live_options["caption"] = caption
         if live_options.get("brand"):
             live_options["brand"] = str(Path(live_options["brand"]).resolve())
+        live_explicit_keys = {key for key in projects.DEFAULT_OPTIONS
+                              if flag_given("--" + key.replace("_", "-"))}
+        live_detection = video_types.classify(
+            video_types.signals_from_measurements(source=args.live))
+        live_resolved = video_types.resolve_format(
+            live_detection, live_options.get("video_type"), live_options.get("format"))
+        live_options = video_types.apply_format(
+            live_options, live_resolved["format"], live_explicit_keys)
         live.run_live(args.live, live_options, Path(args.projects_dir).resolve(),
                       brief_text=brief_text)
         return

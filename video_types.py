@@ -102,11 +102,12 @@ def classify(signals, llm=None, transcript_sample=""):
         "gaming": 0.35 * sig.get("cuts", 0.0) + 0.30 * sig.get("burst", 0.0)
                   + 0.20 * sig.get("facecam", 0.0) + 0.15 * (1.0 - speech)
                   + 0.25 * sig.get("streamish", 0.0),
-        "movie": 0.50 * stable + 0.30 * (1.0 - speech) + 0.20 * sig.get("long", 0.0)
-                 + 0.10 * (1.0 - sig.get("facecam", 0.0)),
+        "movie": (0.50 * stable + 0.30 * (1.0 - speech) + 0.20 * sig.get("long", 0.0)
+                  + 0.10 * (1.0 - sig.get("facecam", 0.0)))
+                 * (1.0 - 0.8 * sig.get("streamish", 0.0)),
         "music": 0.50 * sig.get("burst", 0.0) + 0.30 * sig.get("audio", 0.0)
                  + 0.20 * (1.0 - speech),
-        "livestream": 0.60 * sig.get("streamish", 0.0) + 0.25 * sig.get("long", 0.0)
+        "livestream": 0.95 * sig.get("streamish", 0.0) + 0.25 * sig.get("long", 0.0)
                       + 0.15 * sig.get("facecam", 0.0),
     }
     ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
