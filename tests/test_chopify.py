@@ -1249,7 +1249,7 @@ def test_fit_flag_is_exposed(monkeypatch):
     import live
     seen = {}
     monkeypatch.setattr(live, "run_live",
-                        lambda url, options, root, on_log=None: seen.update(options))
+                        lambda url, options, root, on_log=None, brief_text=None: seen.update(options))
     monkeypatch.setattr(chopify, "check_environment", lambda: None)
     monkeypatch.setattr(sys, "argv", [
         "chopify", "--live", "https://x/l.m3u8", "--fit", "contain",
@@ -1263,7 +1263,7 @@ def test_live_flag_is_exposed(monkeypatch):
     import live
     seen = {}
 
-    def fake_run_live(url, options, root, on_log=None):
+    def fake_run_live(url, options, root, on_log=None, brief_text=None):
         seen.update(url=url, options=options, root=root)
         return None
 
