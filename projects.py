@@ -31,6 +31,7 @@ DEFAULT_OPTIONS = {"aspect": "16:9", "fit": "cover", "style": "default", "tighte
                    "llm": None, "search": None, "semantic": None,
                    "embed_model": "nomic-embed-text", "brand": None,
                    "layout": "single", "centers": [0.25, 0.75], "caption": None,
+                   "facecam_box": None, "facecam_height": 0.34,
                    **LIVE_DEFAULTS}
 
 
@@ -64,10 +65,21 @@ def validate_options(options):
         raise ValueError("Unknown aspect ratio or caption style.")
     if result["fit"] not in {"cover", "contain"}:
         raise ValueError("Fit must be cover or contain.")
-    if result["layout"] not in {"single", "split"}:
-        raise ValueError("Layout must be single or split.")
-    if result["layout"] == "split" and result["aspect"] != "9:16":
-        raise ValueError("Podcast split-screen requires aspect 9:16.")
+    if result["layout"] not in {"single", "split", "stacked"}:
+        raise ValueError("Layout must be single, split or stacked.")
+    if result["layout"] in {"split", "stacked"} and result["aspect"] != "9:16":
+        raise ValueError("Split-screen and gaming stacked layouts require aspect 9:16.")
+    height = result["facecam_height"]
+    if (isinstance(height, bool) or not isinstance(height, (int, float))
+            or not math.isfinite(height) or not 0.20 <= height <= 0.60):
+        raise ValueError("facecam_height must be a number from 0.20 to 0.60.")
+    box = result["facecam_box"]
+    if box is not None:
+        if (not isinstance(box, (list, tuple)) or len(box) != 4
+                or any(isinstance(v, bool) or not isinstance(v, (int, float))
+                       or not math.isfinite(v) or not 0 <= v <= 1 for v in box)):
+            raise ValueError("facecam_box must be four numbers from 0 to 1: x y w h.")
+        result["facecam_box"] = list(box)
     for key in ("min_len", "max_len"):
         if isinstance(result[key], bool) or not isinstance(result[key], int) or not 1 <= result[key] <= 3600:
             raise ValueError(f"{key} must be an integer from 1 to 3600.")

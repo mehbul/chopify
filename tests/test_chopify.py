@@ -1221,6 +1221,21 @@ def test_live_options_headers():
         projects.validate_options({"live_headers": "X-Key: abc"})
 
 
+def test_facecam_options_defaults_and_validation():
+    import projects
+    o = projects.validate_options({})
+    assert o["facecam_box"] is None
+    assert o["facecam_height"] == 0.34
+    assert projects.validate_options({"facecam_box": [0.1, 0.6, 0.2, 0.3]})["facecam_box"] == [0.1, 0.6, 0.2, 0.3]
+    assert projects.validate_options({"layout": "stacked", "aspect": "9:16"})["layout"] == "stacked"
+    for bad in (0.19, 0.61, -1, 2):
+        with pytest.raises(ValueError):
+            projects.validate_options({"facecam_height": bad})
+    for bad in ([0.1, 0.2, 0.3], [0.1, 0.2, 0.3, 4], "0 0 1 1"):
+        with pytest.raises(ValueError):
+            projects.validate_options({"facecam_box": bad})
+
+
 def test_fit_option_default_and_validation():
     import projects
     assert projects.validate_options({})["fit"] == "cover"
