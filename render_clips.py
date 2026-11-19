@@ -596,12 +596,14 @@ def caption_from_args(args):
 def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAULT_STYLE,
            do_tighten=False, loudnorm=False, preview=False, brand=None,
            layout="single", centers=(0.25, 0.75), caption=None,
-           source_offset=0.0):
+           source_offset=0.0, fit="cover"):
     from captions import write_srt
     out_dir = (Path(out_dir) if out_dir else default_out()).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
     source = Path(source).resolve()
     resolved = resolve_caption(style, brand, caption)
+    if fit not in {"cover", "contain"}:
+        raise ValueError("Fit must be cover or contain.")
     if layout not in {"single", "split"} or (layout == "split" and aspect != "9:16"):
         raise ValueError("Split-screen requires vertical 9:16 output.")
     if len(centers) != 2 or any(not math.isfinite(v) or not 0 <= v <= 1 for v in centers):
@@ -644,7 +646,12 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
               tw, th, font_size, margin_v, style, brand, caption)
 
     needs_track = cw < W * 0.95          # real horizontal crop -> track the speaker
-    if layout == "split":
+    if fit == "contain":
+        # Keep the entire source frame visible; fill the rest with black bars.
+        vf = (f"scale={tw}:{th}:force_original_aspect_ratio=decrease,"
+              f"pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2,subtitles=_caption.ass")
+        mode = "contain (full frame)"
+    elif layout == "split":
         # Keep every YUV420 panel even-sized. Older libass/ffmpeg builds can
         # crash on odd-height intermediate frames (854px drafts / 2 = 427).
         panel_h = (th // 4) * 2

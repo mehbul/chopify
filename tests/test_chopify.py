@@ -1221,6 +1221,28 @@ def test_live_options_headers():
         projects.validate_options({"live_headers": "X-Key: abc"})
 
 
+def test_fit_option_default_and_validation():
+    import projects
+    assert projects.validate_options({})["fit"] == "cover"
+    assert projects.validate_options({"fit": "contain"})["fit"] == "contain"
+    with pytest.raises(ValueError, match="Fit"):
+        projects.validate_options({"fit": "stretch"})
+
+
+def test_fit_flag_is_exposed(monkeypatch):
+    import chopify
+    import live
+    seen = {}
+    monkeypatch.setattr(live, "run_live",
+                        lambda url, options, root, on_log=None: seen.update(options))
+    monkeypatch.setattr(chopify, "check_environment", lambda: None)
+    monkeypatch.setattr(sys, "argv", [
+        "chopify", "--live", "https://x/l.m3u8", "--fit", "contain",
+        "--no-preflight"])
+    chopify.main()
+    assert seen["fit"] == "contain"
+
+
 def test_live_flag_is_exposed(monkeypatch):
     import chopify
     import live

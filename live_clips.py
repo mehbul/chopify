@@ -99,7 +99,7 @@ class LiveClipWriter:
                       style=options["style"], do_tighten=options["tighten"],
                       loudnorm=options["loudnorm"], brand=options["brand"],
                       layout=options["layout"], centers=options["centers"],
-                      caption=options["caption"])
+                      caption=options["caption"], fit=options["fit"])
             record.files = {"window": str(window)}
             for path in sorted(self.clips_dir.glob(f"*{record.id}*")):
                 record.files[path.suffix.lstrip(".") or "file"] = str(path)

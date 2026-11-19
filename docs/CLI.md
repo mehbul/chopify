@@ -94,6 +94,7 @@ also shows the value in the `default` preset where applicable.
 | Flag | Default | Accepted values and behavior | Example value |
 | --- | --- | --- | --- |
 | `--aspect` | `16:9` | `16:9`, `9:16`, or `1:1`. | `9:16` |
+| `--fit` | `cover` | `cover` crops to fill the frame (speaker-tracked when possible); `contain` keeps the entire source frame visible with black bars. Good for gameplay/screen captures. | `contain` |
 | `--out` | `CHOPIFY_OUT`, otherwise `./clips` | Export directory for the single-project CLI run; an explicit value overrides the environment variable. | `"exports/vertical"` |
 | `--tighten` | Off | Remove filler words and long silences, retiming captions. | No value |
 | `--loudnorm` | Off | Normalize audio to -14 LUFS. | No value |

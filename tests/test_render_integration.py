@@ -49,6 +49,29 @@ def test_render_playable_with_subtitles_and_brand(source, tmp_path, layout, prev
         assert out.with_suffix(".meta.json").is_file()
 
 
+def test_contain_fit_keeps_whole_frame_with_bars(tmp_path):
+    source = tmp_path / "wide.mp4"
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                    "color=c=white:s=640x360:rate=12:duration=2", "-f", "lavfi", "-i",
+                    "sine=frequency=440:duration=2", "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", str(source)], check=True)
+    out = render_clips.render({"start": 0, "end": 1, "hook": "contain"}, [],
+                              source, 640, 360, tmp_path, "9:16",
+                              out_dir=tmp_path / "contain", preview=True, fit="contain")
+    video = json.loads(subprocess.run(["ffprobe", "-v", "error", "-show_streams", "-of", "json",
+                                       str(out)], capture_output=True, text=True, check=True).stdout)
+    stream = next(s for s in video["streams"] if s["codec_type"] == "video")
+    assert (stream["width"], stream["height"]) == render_clips.PREVIEW["9:16"]
+    raw = subprocess.run(["ffmpeg", "-v", "error", "-ss", "0.3", "-i", str(out),
+                          "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"],
+                         capture_output=True, check=True).stdout
+    width, height = render_clips.PREVIEW["9:16"]
+    top = raw[0:3]
+    center = raw[(height // 2) * width * 3:(height // 2) * width * 3 + 3]
+    assert max(top) < 20                 # letterbox bar
+    assert min(center) > 180             # whole source frame still visible
+
+
 def test_brand_colors_appear_in_ass(tmp_path):
     output = tmp_path / "cap.ass"
     preset = tmp_path / "brand.json"

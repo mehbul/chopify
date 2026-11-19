@@ -195,6 +195,8 @@ def main():
     ap.add_argument("--workdir", default="work", help="intermediate files dir")
     ap.add_argument("--aspect", default="16:9", choices=["16:9", "9:16", "1:1"],
                     help="output aspect ratio (default 16:9)")
+    ap.add_argument("--fit", choices=["cover", "contain"], default=None,
+                    help="cover crops to fill (default); contain keeps the whole frame with bars")
     ap.add_argument("--out", default=None,
                     help="output directory (default ./clips, or $CHOPIFY_OUT)")
     ap.add_argument("--style", default="default",

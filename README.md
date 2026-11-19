@@ -31,7 +31,7 @@ Chopify is an open-source Python app with a local browser dashboard and a CLI. I
 | --- | --- |
 | **Local browser dashboard** | Queue videos, watch job progress, review candidates, edit words and timestamps, and download exports. |
 | **Local video input** | Use MP4, MOV, MKV, WebM, M4V, or AVI recordings directly, or download a yt-dlp-supported URL. |
-| **Live clipping** | Watch an HLS/RTMP stream, detect hype from audio, visual motion, transcript, and chat, and auto-save finished captioned clips from the CLI or Studio. |
+| **Live clipping** | Watch an HLS/RTMP stream, detect hype from audio, visual motion, transcript, and chat, and auto-save finished captioned clips from the CLI or Studio. Use `--fit contain` for full-frame gameplay clips. |
 | **Any-length sources** | Podcasts, movies, streams, and gameplay VODs work without a duration setting. Long sources switch to a resumable audio-first path automatically. |
 | **Audio and visual discovery** | A local 1 Hz audio timeline boosts reactions, laughs, impacts, and gameplay events, while cached 2 fps visual analysis catches motion spikes, scene/UI changes, faces, and action arcs. Speech-sparse and action-only sources can still produce clips. |
 | **Resumable projects** | Reuse matching downloads, transcripts, and completed renders. Retry a failed job without discarding successful clips. |

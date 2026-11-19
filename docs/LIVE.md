@@ -35,6 +35,11 @@ A clip is saved when the combined score reaches `--live-threshold`, subject to
 `--live-cooldown`, `--live-max-clips`, and overlap deduplication. Output uses the
 same caption style, aspect ratio, and brand preset flags as batch mode.
 
+For gameplay or screen-recorded streams, use `--fit contain` with `--aspect 9:16`.
+The default `cover` mode crops a vertical slice (following a detected face),
+which hides most of a landscape game frame. `contain` scales the whole frame and
+adds black bars instead of cropping.
+
 ## Studio
 
 Open Studio, choose **Live clipping**, paste a URL, and start the session. The

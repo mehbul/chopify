@@ -24,7 +24,7 @@ LIVE_DEFAULTS = {
     "live_no_transcript": False, "live_headers": [],
 }
 
-DEFAULT_OPTIONS = {"aspect": "16:9", "style": "default", "tighten": False,
+DEFAULT_OPTIONS = {"aspect": "16:9", "fit": "cover", "style": "default", "tighten": False,
                    "loudnorm": False, "whisper_model": "medium", "device": "cpu",
                    "min_len": 15, "max_len": 300, "max_clips": None,
                    "min_score": 8.0, "preferred_len": None,
@@ -62,6 +62,8 @@ def validate_options(options):
     result = {**DEFAULT_OPTIONS, **options}
     if result["aspect"] not in render_clips.ASPECTS or result["style"] not in render_clips.CAPTION_STYLES:
         raise ValueError("Unknown aspect ratio or caption style.")
+    if result["fit"] not in {"cover", "contain"}:
+        raise ValueError("Fit must be cover or contain.")
     if result["layout"] not in {"single", "split"}:
         raise ValueError("Layout must be single or split.")
     if result["layout"] == "split" and result["aspect"] != "9:16":

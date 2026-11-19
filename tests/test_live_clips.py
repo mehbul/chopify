@@ -37,6 +37,26 @@ def test_remap_words():
         {"word": "bye", "start": 3.0, "end": 3.5}]
 
 
+def test_writer_passes_fit_to_renderer(tmp_path, monkeypatch):
+    import projects
+
+    options = projects.validate_options({"fit": "contain"})
+    segment = tmp_path / "segment00000000.ts"
+    segment.write_bytes(b"x")
+    writer = live_clips.LiveClipWriter(tmp_path / "session")
+    monkeypatch.setattr(live_clips, "stitch", lambda paths, dest, runner=None: dest)
+    seen = {}
+
+    def fake_render(seg, words, source, W, H, workdir, aspect, **kwargs):
+        seen.update(kwargs)
+
+    record = writer.write(live_clips.Trigger(20.0, 9.0, {}), options,
+                          {"width": 640, "height": 360}, [], [segment],
+                          renderer=fake_render)
+    assert record.error is None
+    assert seen["fit"] == "contain"
+
+
 def test_stitch_builds_concat_list(tmp_path):
     paths = [tmp_path / f"segment{i:08d}.ts" for i in range(2, 5)]
     for p in paths:
