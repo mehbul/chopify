@@ -27,6 +27,7 @@ CHOPIFY_VERSION = "1.4.0"
 
 import render_clips
 import score_clips
+import video_types
 
 # Python packages the pipeline needs, with a fix hint per missing module.
 IMPORT_HINTS = {
@@ -172,6 +173,85 @@ def _print_selection(path, state, explain=False):
             score_clips.print_explanations(segments)
 
 
+def detection_callback(detection, resolved):
+    """Human-facing detection notice; prompt only when the match is uncertain."""
+    fmt = resolved["format"]
+    print(f"Detected: {detection.get('type', 'unknown')} "
+          f"({(detection.get('confidence') or 0) * 100:.0f}%) "
+          f"\u00b7 Format: {fmt['name']}", flush=True)
+    if not resolved.get("needs_confirmation"):
+        return None
+    print("No confident type match. 1) use suggested  2) pick a format  "
+          "3) build a new format", flush=True)
+    while True:
+        try:
+            choice = input("Choose [1/2/3]: ").strip()
+        except EOFError:
+            return None
+        if choice == "1":
+            return None
+        if choice == "2":
+            custom, _ = video_types.load_custom_formats()
+            names = sorted({**video_types.FORMATS, **custom})
+            print("Formats: " + ", ".join(names), flush=True)
+            try:
+                name = input("Format name: ").strip()
+            except EOFError:
+                return None
+            if name in names:
+                return {"format": name}
+            print("Unknown format name.", flush=True)
+            continue
+        if choice == "3":
+            return build_new_format_interactive(fmt)
+        print("Enter 1, 2 or 3.", flush=True)
+
+
+def build_new_format_interactive(base, input_fn=input):
+    """Guided format builder with defaults from the detected type."""
+    while True:
+        try:
+            name = input_fn("New format name (lowercase): ").strip()
+        except EOFError:
+            return None
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", name):
+            print("Use lowercase letters, digits, '-' or '_'.", flush=True)
+            continue
+        if name in video_types.FORMATS:
+            print("That name is reserved for a built-in format.", flush=True)
+            continue
+        break
+    data = dict(base)
+    data["name"] = name
+    for key, label, cast in (
+            ("min_len", "Minimum clip seconds", int),
+            ("max_len", "Maximum clip seconds", int),
+            ("caption_style", "Caption style", str),
+            ("layout", "Layout (single/split/stacked)", str),
+            ("fit", "Fit (cover/contain)", str)):
+        try:
+            answer = input_fn(f"{label} [{base.get(key, '')}]: ").strip()
+        except EOFError:
+            return None
+        if answer:
+            try:
+                data[key] = cast(answer)
+            except ValueError:
+                print("Invalid value; keeping the default.", flush=True)
+    for key in ("tighten", "loudnorm"):
+        try:
+            answer = input_fn(f"{key} [{'y' if base.get(key) else 'n'}]: ").strip().lower()
+        except EOFError:
+            return None
+        if answer in {"y", "yes", "n", "no"}:
+            data[key] = answer in {"y", "yes"}
+    try:
+        return video_types.save_custom_format(data)
+    except ValueError as exc:
+        print(f"Could not save format: {exc}", flush=True)
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser(
         prog="chopify",
@@ -193,6 +273,15 @@ def main():
     ap.add_argument("--live-skip-ads", action="store_true", default=None,
                     help="suppress clip triggers while a flat ad slate is detected")
     ap.add_argument("--live-header", dest="live_headers", action="append", default=None)
+    ap.add_argument("--video-type", dest="video_type", default=None,
+                    choices=["auto", *video_types.VIDEO_TYPES],
+                    help="video type override, or auto (default) to detect locally")
+    ap.add_argument("--format", dest="format", default=None,
+                    help="built-in or custom clipping format name, or a JSON path")
+    ap.add_argument("--video-type-model", default=None, metavar="MODEL",
+                    help="optional local Ollama model to resolve uncertain detections")
+    ap.add_argument("--list-formats", action="store_true",
+                    help="print built-in and custom format names and exit")
     ap.add_argument("--brief", default=None,
                     help="campaign requirements text (conflicts with --brief-file)")
     ap.add_argument("--brief-file", default=None,
@@ -265,6 +354,11 @@ def main():
     ap.add_argument("--device", choices=["cpu", "cuda", "auto"], default="cpu")
     render_clips.add_caption_arguments(ap)
     args = ap.parse_args()
+    if args.list_formats:
+        custom, _ = video_types.load_custom_formats()
+        for name in sorted({**video_types.FORMATS, **custom}):
+            print(name)
+        return
     brief_text = args.brief
     if args.brief_file:
         if brief_text:
@@ -331,19 +425,25 @@ def main():
     options["caption"] = caption
     if options["min_score"] is None:
         options["min_score"] = 8.0
+    if options["video_type"] is None:
+        options["video_type"] = "auto"
     if options["brand"]:
         options["brand"] = str(Path(options["brand"]).resolve())
+    explicit_keys = {key for key in projects.DEFAULT_OPTIONS
+                     if flag_given("--" + key.replace("_", "-"))}
     interactive = (
         not args.no_input and not args.batch and args.action != "render"
         and not args.search and not args.semantic and sys.stdin.isatty()
     )
+    detection_cb = detection_callback if interactive else None
     ask_score = not flag_given("--min-score")
     ask_length = not flag_given("--preferred-len")
     try:
         if args.batch:
             sources = json.loads(Path(args.batch).read_text(encoding="utf-8-sig"))
             results = projects.run_batch(sources, Path(args.projects_dir).resolve(), options,
-                action=args.action, preview=args.preview, pick=args.clips, resume=args.resume)
+                action=args.action, preview=args.preview, pick=args.clips, resume=args.resume,
+                on_detection=detection_cb, explicit_keys=explicit_keys)
             print(json.dumps(results, indent=2))
             if any(r["status"] == "failed" for r in results):
                 raise SystemExit(1)
@@ -384,7 +484,8 @@ def main():
         printed_summary = False
         if interactive and args.action == "all":
             result = projects.run_project(path, action="prepare", preview=args.preview,
-                                          resume=args.resume)
+                                          resume=args.resume, on_detection=detection_cb,
+                                          explicit_keys=explicit_keys)
             state = projects.read_project(path)
             _print_selection(path, state, args.explain)
             printed_summary = True
@@ -407,10 +508,14 @@ def main():
                           f"--action render")
                     return
             result = projects.run_project(path, action="render", preview=args.preview,
-                                          pick=args.clips, resume=args.resume)
+                                          pick=args.clips, resume=args.resume,
+                                          on_detection=detection_cb,
+                                          explicit_keys=explicit_keys)
         else:
             result = projects.run_project(path, action=args.action, preview=args.preview,
-                                          pick=args.clips, resume=args.resume)
+                                          pick=args.clips, resume=args.resume,
+                                          on_detection=detection_cb,
+                                          explicit_keys=explicit_keys)
         if not printed_summary:
             _print_selection(path, result, args.explain)
         if args.action != "prepare":
