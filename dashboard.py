@@ -68,6 +68,8 @@ class Studio:
         self.lock = threading.RLock()
         self.futures = {}
         self.processes = set()
+        self.live_sessions = {}
+        self.live_lock = threading.Lock()
         self.closing = False
         for path in self.root.glob("*/project.json"):
             try:
@@ -133,9 +135,44 @@ class Studio:
             state.update(status="failed", error=str(exc))
             projects.save_project(path, state)
 
+    def start_live(self, source, options):
+        import live
+        from live_capture import resolve_live_source
+        resolved = resolve_live_source(source, options)
+        session = live.LiveSession(resolved, options, self.root)
+        with self.live_lock:
+            self.live_sessions[session.id] = session
+        thread = threading.Thread(target=session.start,
+                                  name=f"live-{session.id}", daemon=True)
+        thread.start()
+        return session
+
+    def stop_live(self, session_id):
+        with self.live_lock:
+            session = self.live_sessions.get(session_id)
+        if session is None:
+            raise ValueError("Unknown live session.")
+        session.stop()
+        return session
+
+    def live_state(self, session_id):
+        with self.live_lock:
+            session = self.live_sessions.get(session_id)
+        if session is None:
+            raise ValueError("Unknown live session.")
+        return projects.read_json(session.dir / "live_session.json")
+
+    def live_list(self):
+        with self.live_lock:
+            sessions = list(self.live_sessions.values())
+        return [projects.read_json(s.dir / "live_session.json")
+                for s in sessions if (s.dir / "live_session.json").exists()]
+
     def close(self):
         with self.lock:
             self.closing = True
+            for session in list(self.live_sessions.values()):
+                session.stop()
             for child in list(self.processes):
                 child.terminate()
             self.executor.shutdown(wait=False, cancel_futures=True)
@@ -221,6 +258,20 @@ class Handler(BaseHTTPRequestHandler):
                 if file.parent != path / parts[2] or file.suffix not in {".mp4", ".srt", ".png", ".json"}:
                     raise ValueError("Invalid media path.")
                 return self.send_file(file)
+            if parts == ["api", "live"]:
+                return self.send_json({"sessions": self.app.live_list()})
+            if len(parts) == 3 and parts[:2] == ["api", "live"]:
+                return self.send_json(self.app.live_state(parts[2]))
+            if (len(parts) == 5 and parts[0] == "media" and parts[1] == "live"
+                    and parts[3] == "clips"):
+                if not re.fullmatch(r"[a-f0-9]{12}", parts[2]):
+                    raise ValueError("Invalid live session ID.")
+                session_dir = self.app.root / "live" / parts[2]
+                file = (session_dir / "clips" / parts[4]).resolve()
+                clips_dir = (session_dir / "clips").resolve()
+                if file.parent != clips_dir or file.suffix not in {".mp4", ".srt", ".png", ".json"}:
+                    raise ValueError("Invalid media path.")
+                return self.send_file(file)
             static = {"": "index.html", "app.js": "app.js", "style.css": "style.css"}
             filename = "/".join(parts)
             if filename in static:
@@ -248,6 +299,15 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("Expected a JSON object.")
             parts = unquote(urlsplit(self.path).path).strip("/").split("/")
             with self.app.lock:
+                if parts == ["api", "live"]:
+                    source = body.get("source")
+                    if not isinstance(source, str) or not source.strip():
+                        raise ValueError("Provide a live source URL.")
+                    options = projects.validate_options(body.get("options", {}))
+                    return self.send_json({"id": self.app.start_live(source.strip(), options).id}, 201)
+                if len(parts) == 4 and parts[:2] == ["api", "live"] and parts[3] == "stop":
+                    self.app.stop_live(parts[2])
+                    return self.send_json({"ok": True})
                 if parts == ["api", "projects"]:
                     return self.send_json(projects.create_project(self.app.root, body["source"], body.get("options", {})), 201)
                 if parts == ["api", "batch"]:

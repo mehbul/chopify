@@ -119,3 +119,53 @@ def test_queued_projects_reject_duplicate_jobs_and_edits(server, monkeypatch):
             assert exc.value.code == 400
     finally:
         gate.set()
+
+
+def _fake_live_session(tmp_path, source, options):
+    import live
+    import projects
+    from live_capture import LiveSource
+    session = live.LiveSession.__new__(live.LiveSession)
+    session.id = "abcdef123456"
+    session.dir = tmp_path
+    session.source = LiveSource(source, "hls", "generic", "passthrough", [])
+    session.options = projects.validate_options(options)
+    session.status = "running"
+    session.started_at = 1.0
+    session.stopped_at = None
+    session.stream_time = 0.0
+    session.recent_scores = []
+    session.records = []
+    session.errors = []
+    session.stop = lambda: None
+    session._save()
+    return session
+
+
+def test_live_routes(server, monkeypatch, tmp_path):
+    httpd, base = server
+    session = _fake_live_session(tmp_path, "https://x/l.m3u8", {
+        "live_no_chat": True, "live_no_transcript": True})
+
+    def fake_start_live(source, options):
+        httpd.app.live_sessions[session.id] = session
+        return session
+
+    monkeypatch.setattr(httpd.app, "start_live", fake_start_live)
+    created = request(base, "/api/live", {
+        "source": "https://x/l.m3u8",
+        "options": {"live_no_chat": True, "live_no_transcript": True}}, httpd.app.token)
+    assert created["id"] == "abcdef123456"
+    listed = request(base, "/api/live")
+    assert "abcdef123456" in [s["id"] for s in listed["sessions"]]
+    detail = request(base, "/api/live/abcdef123456")
+    assert detail["status"] == "running"
+    stopped = request(base, "/api/live/abcdef123456/stop", {}, httpd.app.token)
+    assert stopped["ok"] is True
+
+
+def test_live_route_rejects_missing_token(server):
+    _, base = server
+    with pytest.raises(urllib.error.HTTPError) as exc:
+        request(base, "/api/live", {"source": "https://x/l.m3u8"})
+    assert exc.value.code == 403
