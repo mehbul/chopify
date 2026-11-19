@@ -19,6 +19,25 @@ Each session writes `projects/live/<id>/live_session.json`, a rolling `buffer/`
 of 4-second segments, and finished clips in `clips/`. The buffer is capped by
 `--live-buffer` (seconds) and `--live-buffer-max-mb` (megabytes).
 
+## Reliability
+
+A page URL is re-resolved with yt-dlp every 10 minutes and whenever the capture
+process exits, so expiring stream tokens are refreshed automatically. If no new
+segment arrives for 20 seconds, Chopify waits with backoff (1, 2, then 4 seconds)
+and restarts capture while keeping the session id, brief rules, and saved clips.
+After three failed restarts the session is marked `failed` with a plain reason.
+
+`live_session.json` includes a `health` object with `state` (`ok`, `degraded`, or
+`failed`), `ffmpeg_alive`, `last_segment_age`, `restarts`, `refreshes`,
+`warnings`, and the brief `provider`/`source`. The CLI prints each state change;
+Studio shows the state, segment age, restart count, and next action in the Live
+view.
+
+`--live-skip-ads` is off by default. When enabled, a flat, saturated ad-like
+frame suppresses the clip trigger and logs "ad-like frame; clip suppressed".
+Footage is still buffered and nothing is deleted. Detection is best-effort: it
+can miss ad slates or misfire on flat gameplay, so it only suppresses triggers.
+
 ## Signals
 
 - **Audio** energy relative to a rolling 60-second baseline.

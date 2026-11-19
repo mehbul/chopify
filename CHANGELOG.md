@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- Brief provider failures now name the specific agent and reason (for example,
+  "claude found but not authenticated") instead of a generic error, and
+  `--brief-provider none` forces deterministic keyword rules.
+- Live capture restarts a stalled stream and re-resolves expiring page URLs
+  instead of silently stopping when ffmpeg exits.
 - Live sessions now decode only completed HLS segments instead of the segment
   being written, avoiding partial-file decode failures.
 - Visual signal frames are reshaped from raw ffmpeg bytes before analysis.
@@ -17,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a file instead of an undrained pipe.
 
 ### Added
+- Live reliability: page-URL streams are re-resolved every 10 minutes and on
+  capture exit, stalled capture restarts with backoff, and a `health` object
+  (`state`, segment age, restarts, refreshes, warnings, brief source/provider)
+  is saved to `live_session.json` and shown in Studio and the CLI.
+- Best-effort ad-slate suppression with `--live-skip-ads` (off by default). It
+  only suppresses clip triggers; footage is still buffered and never discarded.
+- An offline HLS fixture integration test drives the live pipeline with local
+  ffmpeg — no network, account, or API key required.
 - Campaign brief clipping: paste requirements in Studio or via `--brief` and a
   local LLM agent (Ollama, Claude, Codex, Hermes, or custom command) extracts
   structured rules into `brief_rules.json`. Batch and live clips are filtered
