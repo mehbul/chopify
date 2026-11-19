@@ -8,6 +8,7 @@
 - [Workflow guide](https://github.com/mehbul/chopify/blob/main/docs/WORKFLOWS.md): local input, batch, resume, any-length sources, long-source Studio previews, caption editing and styling, branding, semantic search, split-screen, and project files.
 - [CLI flag reference](https://github.com/mehbul/chopify/blob/main/docs/CLI.md): every `chopify.py` flag with defaults, accepted values, and examples.
 - [Agent and API reference](https://github.com/mehbul/chopify/blob/main/docs/AGENT-API.md): CLI, Python interfaces, JSON formats, and authenticated loopback HTTP endpoints.
+- [Agent interface and skill](https://github.com/mehbul/chopify/blob/main/docs/AGENT-API.md#agent-interface-no-mcp): `python agent.py describe` lists every operation with JSON Schemas; stdout is NDJSON, errors are typed, and `SKILL.md` is an installable agent skill.
 - [Live clipping guide](https://github.com/mehbul/chopify/blob/main/docs/LIVE.md): live HLS/RTMP sources, hype signals, CLI options, Studio Live tab, session files, and rights notes.
 - [Troubleshooting](https://github.com/mehbul/chopify/blob/main/docs/TROUBLESHOOTING.md): ffmpeg, models, captions, CUDA, and failed jobs.
 - [Product facts](https://github.com/mehbul/chopify/blob/main/docs/product.json): machine-readable capabilities, requirements, licensing, and exclusions.
@@ -45,4 +46,4 @@
 - [License](https://github.com/mehbul/chopify/blob/main/LICENSE)
 - [Documentation website](https://mehbul.github.io/chopify/)
 
-Updated: 2026-11-19. This file is a factual navigation aid, not a search-engine requirement or ranking signal.
+Updated: 2026-11-20. This file is a factual navigation aid, not a search-engine requirement or ranking signal.

@@ -4,7 +4,8 @@ from pathlib import Path
 import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = {"docs/index.html": "index.html", "docs/site.css": "site.css",
+FILES = {"SKILL.md": "skill.md",
+         "docs/index.html": "index.html", "docs/site.css": "site.css",
          "docs/sitemap.xml": "sitemap.xml", "docs/robots.txt": "robots.txt",
          "docs/product.json": "product.json", "docs/LIVE.md": "live.md",
          "llms.txt": "llms.txt",

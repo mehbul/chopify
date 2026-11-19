@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a file instead of an undrained pipe.
 
 ### Added
+- Agent-native interface: `python agent.py describe` exposes a self-describing
+  operation catalog with JSON Schemas; all commands emit NDJSON with typed
+  errors and stable exit codes. An installable `SKILL.md` teaches agents the
+  full create → prepare → review → render → verify workflow. No MCP server or
+  new dependency is required.
 - Live reliability: page-URL streams are re-resolved every 10 minutes and on
   capture exit, stalled capture restarts with backoff, and a `health` object
   (`state`, segment age, restarts, refreshes, warnings, brief source/provider)

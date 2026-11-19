@@ -5,7 +5,14 @@
   "website": "https://mehbul.github.io/chopify/",
   "license": "MIT",
   "price": {"amount": 0, "currency": "USD", "software_subscription_required": false},
-  "interfaces": ["Python CLI", "local browser dashboard", "authenticated loopback HTTP API"],
+  "interfaces": ["Python CLI", "local browser dashboard", "authenticated loopback HTTP API", "agent CLI (NDJSON)"],
+  "agent_interface": {
+    "entry_point": "python agent.py",
+    "discovery": "python agent.py describe",
+    "output": "newline-delimited JSON with typed error events",
+    "skill": "SKILL.md",
+    "mcp": false
+  },
   "requirements": ["Python >=3.11", "ffmpeg and ffprobe with libx264, AAC and libass", "yt-dlp", "faster-whisper", "opencv-python"],
   "platforms": {"primary": "Windows", "ci": ["Windows", "Linux"]},
   "inputs": ["local MP4", "MOV", "MKV", "WebM", "M4V", "AVI", "yt-dlp-supported HTTP(S) URL", "live HLS/RTMP URL"],
@@ -28,5 +35,5 @@
   "optional_models": {"semantic_search": {"provider": "local Ollama", "default_model": "nomic-embed-text", "endpoint": "http://127.0.0.1:11434/api/embed"}, "clip_selection": "local Ollama chat model"},
   "privacy": {"hosted_processing": false, "initial_model_downloads": true, "url_inputs_need_internet": true, "dashboard_binding": "127.0.0.1"},
   "not_included": ["social publishing", "scheduling", "cloud collaboration", "hosted processing", "translation", "bilingual captions", "dubbing", "speaker diarization", "guaranteed virality"],
-  "documentation_updated": "2026-11-19"
+  "documentation_updated": "2026-11-20"
 }
