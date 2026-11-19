@@ -1,0 +1,122 @@
+{
+  "id": "c8f7e3dbf990",
+  "source": {
+    "url": "https://www.twitch.tv/ishowspeed (signed HLS URL redacted)",
+    "kind": "hls",
+    "platform": "twitch",
+    "resolved_by": "yt-dlp"
+  },
+  "status": "stopped",
+  "started_at": 1795076461.1895857,
+  "stopped_at": 1795076567.3151562,
+  "stream_time": 100.15,
+  "recent_scores": [
+    1.0742,
+    0.0,
+    0.0,
+    2.82,
+    0.6079,
+    0.6737,
+    0.0,
+    2.2552,
+    1.1316,
+    0.0,
+    3.2358,
+    0.6682,
+    2.1527,
+    0.0,
+    0.0,
+    0.0855,
+    1.1284,
+    1.5296,
+    0.0,
+    3.6324,
+    1.8891,
+    1.5944,
+    0.0831,
+    0.2055,
+    0.95,
+    0.0,
+    0.0,
+    0.0,
+    0.0472,
+    3.3333,
+    2.6039,
+    0.0,
+    0.0,
+    1.0773,
+    3.9809,
+    4.1162,
+    1.2934,
+    1.3916,
+    1.0331,
+    0.6498,
+    0.0605,
+    0.046,
+    1.8747,
+    1.9883,
+    4.8976,
+    0.8833,
+    1.4304,
+    1.8794,
+    1.8794,
+    1.6472,
+    0.0,
+    0.0,
+    2.9055,
+    0.3532,
+    0.5775,
+    2.5654,
+    2.6165,
+    0.6932,
+    0.4131,
+    0.0
+  ],
+  "triggers": [
+    {
+      "id": "d11140d328cc",
+      "start": 0.0,
+      "end": 10.091,
+      "score": 5.4545,
+      "signals": {
+        "audio": 10.0,
+        "visual": 0.0
+      },
+      "files": {
+        "window": "projects\\live\\c8f7e3dbf990\\windows\\d11140d328cc.mp4"
+      },
+      "error": null
+    },
+    {
+      "id": "5eda9213b3da",
+      "start": 5.61,
+      "end": 25.61,
+      "score": 2.6667,
+      "signals": {
+        "audio": 0.0,
+        "visual": 0.0,
+        "chat": 10.0
+      },
+      "files": {
+        "window": "projects\\live\\c8f7e3dbf990\\windows\\5eda9213b3da.mp4"
+      },
+      "error": null
+    },
+    {
+      "id": "ebffba8b752b",
+      "start": 23.699,
+      "end": 43.699,
+      "score": 2.82,
+      "signals": {
+        "audio": 7.0139,
+        "visual": 0.0433,
+        "chat": 0.0
+      },
+      "files": {
+        "window": "projects\\live\\c8f7e3dbf990\\windows\\ebffba8b752b.mp4"
+      },
+      "error": null
+    }
+  ],
+  "errors": []
+}

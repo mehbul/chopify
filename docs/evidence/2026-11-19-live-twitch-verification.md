@@ -4,10 +4,10 @@ Date: 2026-11-19
 Source used for testing: `https://www.twitch.tv/ishowspeed` (live at test time)
 Status: **passed** after fixing four defects found by this test.
 
-> Rights note: this report contains no video, audio, posters, or frames from the
-> stream. It records only tool-generated metrics and logs. The signed HLS URL is
-> redacted. Do not publish third-party stream media without the rights holder's
-> permission.
+> Rights note: `media/` contains the rendered test clip, poster and session log,
+> which include footage and audio from a third-party Twitch broadcast. They are
+> included only as technical evidence; all rights remain with the streamer and
+> licensors. See `media/README.md`. Signed HLS URLs and tokens are redacted.
 
 ## Environment
 
@@ -57,7 +57,7 @@ run duration       100 s
 | Session errors | none |
 | ffmpeg capture log | empty (no errors) |
 
-Rendered artifacts from the final clip (metadata only):
+Rendered artifacts from the final clip (copied to `media/` as evidence):
 
 | File | Size |
 | --- | --- |
@@ -65,6 +65,9 @@ Rendered artifacts from the final clip (metadata only):
 | `clip.png` | 766,944 bytes |
 | `clip.meta.json` | 255 bytes |
 | `clip.srt` | 0 bytes (transcript disabled in this run) |
+
+- [Rendered clip](media/clip.mp4) · [Poster frame](media/clip.png) ·
+  [Clip metadata](media/clip.meta.json) · [Session state](media/session.json)
 
 ffmpeg reported successful 9:16 renders, e.g.:
 `SAVED .../clips/clip.mp4 (9:16 1080x1920, speaker-tracked) + poster clip.png + clip.meta.json`
