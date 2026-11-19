@@ -33,8 +33,16 @@ def detect_provider(explicit=None, command=None):
     except Exception:
         pass
     for name in ("claude", "codex", "hermes"):
-        if shutil.which(name):
-            return name, PROVIDERS[name]
+        executable = shutil.which(name)
+        if not executable:
+            continue
+        try:
+            probe = subprocess.run([executable, "--version"], capture_output=True,
+                                   timeout=5, check=False)
+            if probe.returncode == 0:
+                return name, PROVIDERS[name]
+        except Exception:
+            continue
     return None, None
 
 
@@ -53,6 +61,10 @@ def ask_llm(prompt, provider=None, command=None, timeout=120):
         raise RuntimeError("No local LLM agent found")
     argv = shlex.split(descriptor["command"])
     argv = [prompt if part == "{prompt}" else part for part in argv]
+    if name in PROVIDERS:
+        executable = shutil.which(name)
+        if executable:
+            argv[0] = executable
     result = subprocess.run(argv, capture_output=True, text=True,
                             timeout=timeout, check=True)
     return result.stdout
