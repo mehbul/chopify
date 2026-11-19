@@ -107,3 +107,29 @@ def test_ready_segments_excludes_newest(tmp_path):
         (tmp_path / f"segment{i:08d}.ts").write_bytes(b"x")
     assert [p.name for p in buffer.ready_segments()] == [
         "segment00000000.ts", "segment00000001.ts"]
+
+
+def test_live_source_refresh(monkeypatch):
+    calls = []
+
+    class Result:
+        stdout = json.dumps({"url": "https://cdn/new.m3u8", "protocol": "hls"})
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return Result()
+
+    monkeypatch.setattr(live_capture.ingest, "_run", fake_run)
+    source = live_capture.resolve_live_source(
+        "https://twitch.tv/channel", {}, runner=fake_run)
+    assert source.page_url == "https://twitch.tv/channel"
+    refreshed = source.refresh({}, runner=fake_run)
+    assert refreshed.url == "https://cdn/new.m3u8"
+    assert refreshed.page_url == "https://twitch.tv/channel"
+    assert calls
+
+
+def test_direct_source_refresh_is_noop():
+    source = live_capture.resolve_live_source(
+        "https://cdn/live.m3u8", {})
+    assert source.refresh({}) is source

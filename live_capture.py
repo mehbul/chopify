@@ -28,6 +28,13 @@ class LiveSource:
     platform: str
     resolved_by: str
     headers: list[str]
+    page_url: str | None = None
+
+    def refresh(self, options, runner=None):
+        """Re-resolve a page URL; a direct manifest cannot be refreshed."""
+        if not self.page_url:
+            return self
+        return resolve_live_source(self.page_url, options, runner)
 
 
 def _platform(url):
@@ -48,7 +55,7 @@ def resolve_live_source(url, options, runner=None):
     if (parsed.scheme in DIRECT_SCHEMES
             or (parsed.scheme in {"http", "https"} and url.lower().split("?")[0].endswith(DIRECT_SUFFIXES))):
         return LiveSource(url, "rtmp" if parsed.scheme in DIRECT_SCHEMES else "hls",
-                          _platform(url), "passthrough", headers)
+                          _platform(url), "passthrough", headers, None)
     if not ingest.is_url(url):
         raise ValueError("Live source must be an http(s), HLS or RTMP URL.")
     runner = runner or ingest._run
@@ -60,7 +67,7 @@ def resolve_live_source(url, options, runner=None):
         raise ValueError("yt-dlp could not resolve a live stream URL from that page.")
     protocol = str(data.get("protocol") or "").lower()
     kind = "hls" if "m3u8" in resolved or "hls" in protocol else "http"
-    return LiveSource(resolved, kind, _platform(url), "yt-dlp", headers)
+    return LiveSource(resolved, kind, _platform(url), "yt-dlp", headers, url)
 
 
 class SegmentBuffer:
