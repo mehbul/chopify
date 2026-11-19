@@ -48,6 +48,25 @@ def test_save_load_rules(tmp_path):
     assert campaign.load_rules(tmp_path)["must_mention"] == ["x"]
 
 
+def test_score_clips_applies_brief_rules(tmp_path, monkeypatch):
+    import score_clips
+    data = {"video": "x.mp4", "duration": 10,
+            "words": [{"word": "night", "start": 0, "end": 1},
+                      {"word": "mode", "start": 1, "end": 2}]}
+    (tmp_path / "transcript.json").write_text(json.dumps(data))
+    rules = campaign._normalize({"banned": ["night"]}, "llm", "fake", "brief")
+    campaign.save_rules(tmp_path, rules)
+    monkeypatch.setattr(score_clips, "discover", lambda *a, **k: None)
+    monkeypatch.setattr(score_clips, "select",
+                        lambda *a, **k: ([{"start": 0, "end": 2, "hook": "a", "overall": 8.0}], "heuristic"))
+    monkeypatch.setattr(campaign, "detect_provider",
+                        lambda *a, **k: ("fake", {"command": "fake {prompt}"}))
+    monkeypatch.setattr(campaign, "ask_llm",
+                        lambda prompt, *a, **k: '{"scores":[{"index":0,"score":9}]}')
+    segments, mode = score_clips.run(tmp_path, min_score=0)
+    assert segments == []
+
+
 def test_apply_rules_filters_and_scores(tmp_path, monkeypatch):
     words = [
         {"word": "night", "start": 0, "end": 0.5},

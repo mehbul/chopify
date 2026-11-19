@@ -33,6 +33,7 @@ from pathlib import Path
 
 import evidence
 import visual
+import campaign
 
 OLLAMA_HOST = "http://localhost:11434"
 
@@ -1698,6 +1699,16 @@ def run(workdir, llm=None, host=OLLAMA_HOST, min_score=None, max_clips=None,
                                 max_clips=max_clips,
                                 preferred_len=preferred_len,
                                 llm=llm, host=host)
+
+    rules = campaign.load_rules(workdir)
+    if rules and segments:
+        segments, scores = campaign.apply_rules(segments, rules, workdir)
+        if scores:
+            print(f"Campaign brief: {len(segments)} clip(s) matched "
+                  f"(provider={rules.get('provider')}).", flush=True)
+        else:
+            print(f"Campaign brief: {len(segments)} clip(s) matched by rules "
+                  "(LLM scoring unavailable).", flush=True)
 
     if not segments:
         _no_clips_message(workdir, effective_score)

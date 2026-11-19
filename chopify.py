@@ -191,6 +191,15 @@ def main():
     ap.add_argument("--live-no-chat", action="store_true", default=None)
     ap.add_argument("--live-no-transcript", action="store_true", default=None)
     ap.add_argument("--live-header", dest="live_headers", action="append", default=None)
+    ap.add_argument("--brief", default=None,
+                    help="campaign requirements text (conflicts with --brief-file)")
+    ap.add_argument("--brief-file", default=None,
+                    help="path to a .txt/.md campaign brief")
+    ap.add_argument("--brief-provider", default=None,
+                    choices=["ollama", "claude", "codex", "hermes"],
+                    help="local LLM agent for brief parsing (auto-detected by default)")
+    ap.add_argument("--brief-command", default=None,
+                    help="custom command template for the local LLM, with {prompt}")
     ap.add_argument("url", nargs="?", help="local video path or yt-dlp-supported URL")
     ap.add_argument("--workdir", default="work", help="intermediate files dir")
     ap.add_argument("--aspect", default="16:9", choices=["16:9", "9:16", "1:1"],
@@ -254,6 +263,18 @@ def main():
     ap.add_argument("--device", choices=["cpu", "cuda", "auto"], default="cpu")
     render_clips.add_caption_arguments(ap)
     args = ap.parse_args()
+    brief_text = args.brief
+    if args.brief_file:
+        if brief_text:
+            ap.error("--brief and --brief-file are mutually exclusive.")
+        brief_text = Path(args.brief_file).read_text(encoding="utf-8-sig")
+    if brief_text:
+        import campaign
+        rules = campaign.parse_brief(brief_text, args.brief_provider, args.brief_command)
+        if rules.get("warning"):
+            print(f"Brief warning: {rules['warning']}", flush=True)
+    if brief_text and args.batch:
+        ap.error("--brief is not supported with --batch; run sources individually or use Studio.")
     if args.list_styles:
         for name in render_clips.CAPTION_STYLES:
             print(name)
@@ -325,6 +346,8 @@ def main():
                 raise SystemExit(1)
             return
         path = Path(args.project or args.workdir).resolve()
+        if brief_text:
+            campaign.save_rules(path, rules)
         prompted = None
         if (path / "project.json").exists():
             state = projects.read_project(path)
