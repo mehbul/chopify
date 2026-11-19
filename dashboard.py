@@ -16,9 +16,25 @@ import webbrowser
 import branding
 import projects
 import render_clips
+import video_types
 
 HERE = Path(__file__).resolve().parent
 STATIC = HERE / "assets" / "studio"
+
+
+def config_payload(root=None):
+    """Config fields for video types and available clipping formats."""
+    custom, warnings = video_types.load_custom_formats(root)
+    return {
+        "video_types": list(video_types.VIDEO_TYPES),
+        "formats": {**video_types.FORMATS, **custom},
+        "format_warnings": warnings,
+    }
+
+
+def save_format(body, root=None):
+    """Validate and persist a custom clipping format."""
+    return video_types.save_custom_format(body, root=root)
 
 
 def project_detail(root, project_id):
@@ -54,6 +70,9 @@ def project_detail(root, project_id):
         "playable_source": bool(
             not render_from_sections and video
             and Path(video).is_file()),
+        "detection": state.get("detection"),
+        "format": state.get("format"),
+        "format_recipe": state.get("format_recipe"),
     })
     return data
 
@@ -224,7 +243,7 @@ class Handler(BaseHTTPRequestHandler):
                         key: brand[key] for key in branding.CAPTION_FIELDS
                         if brand[key] is not None
                     }
-                return self.send_json({
+                payload = {
                     "token": self.app.token,
                     "defaults": projects.DEFAULT_OPTIONS,
                     "brands": brands,
@@ -240,7 +259,9 @@ class Handler(BaseHTTPRequestHandler):
                         {"words": list(stems), "emoji": emoji}
                         for stems, emoji in render_clips.EMOJI_RULES
                     ],
-                })
+                }
+                payload.update(config_payload(self.app.root))
+                return self.send_json(payload)
             if parts == ["api", "projects"]:
                 return self.send_json({"projects": self.app.list_projects()})
             if len(parts) == 3 and parts[:2] == ["api", "projects"]:
@@ -313,6 +334,8 @@ class Handler(BaseHTTPRequestHandler):
                 if len(parts) == 4 and parts[:2] == ["api", "live"] and parts[3] == "stop":
                     self.app.stop_live(parts[2])
                     return self.send_json({"ok": True})
+                if parts == ["api", "formats"]:
+                    return self.send_json(save_format(body, root=self.app.root), 201)
                 if parts == ["api", "projects"]:
                     return self.send_json(projects.create_project(self.app.root, body["source"], body.get("options", {})), 201)
                 if parts == ["api", "batch"]:

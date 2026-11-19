@@ -15,6 +15,7 @@ import visual
 import ingest
 import sections
 import branding
+import video_types
 from captions import update_transcript
 
 LIVE_DEFAULTS = {
@@ -32,6 +33,7 @@ DEFAULT_OPTIONS = {"aspect": "16:9", "fit": "cover", "style": "default", "tighte
                    "embed_model": "nomic-embed-text", "brand": None,
                    "layout": "single", "centers": [0.25, 0.75], "caption": None,
                    "facecam_box": None, "facecam_height": 0.34,
+                    "video_type": "auto", "format": None, "video_type_model": None,
                    **LIVE_DEFAULTS}
 
 
@@ -69,6 +71,15 @@ def validate_options(options):
         raise ValueError("Layout must be single, split or stacked.")
     if result["layout"] in {"split", "stacked"} and result["aspect"] != "9:16":
         raise ValueError("Split-screen and gaming stacked layouts require aspect 9:16.")
+    video_type = result["video_type"]
+    if video_type != "auto" and video_type not in video_types.VIDEO_TYPES:
+        raise ValueError(f"Unknown video type: {video_type}.")
+    fmt = result["format"]
+    if fmt is not None and (not isinstance(fmt, str) or not fmt.strip()):
+        raise ValueError("format must be a format name or a JSON path.")
+    model = result["video_type_model"]
+    if model is not None and (not isinstance(model, str) or not model.strip()):
+        raise ValueError("video_type_model must be a model name or None.")
     height = result["facecam_height"]
     if (isinstance(height, bool) or not isinstance(height, (int, float))
             or not math.isfinite(height) or not 0.20 <= height <= 0.60):
@@ -152,9 +163,9 @@ def score_options(options):
 
 def score_keys(transcript_key, data, options):
     """Return (discovery_key, selection_key) for split stage caching."""
-    discovery_options = {key: options[key] for key in (
+    discovery_options = {key: options.get(key) for key in (
         "search", "semantic", "embed_model", "min_len", "max_len",
-        "preferred_len")}
+        "preferred_len", "video_type", "format", "video_type_model")}
     discovery_key = digest([transcript_key, data, discovery_options,
                             evidence.EVIDENCE_VERSION,
                             visual.FEATURE_VERSION])
@@ -162,6 +173,38 @@ def score_keys(transcript_key, data, options):
         "min_score", "max_clips", "llm")}
     selection_key = digest([discovery_key, selection_options])
     return discovery_key, selection_key
+
+
+def apply_detection(path, state, options, detection, on_detection=None,
+                    explicit_keys=None):
+    """Resolve a format for the detection and return updated options and state."""
+    if explicit_keys is None:
+        explicit_keys = {key for key, default in DEFAULT_OPTIONS.items()
+                         if options.get(key) != default}
+    resolved = video_types.resolve_format(
+        detection, options.get("video_type"), options.get("format"))
+    if on_detection is not None:
+        choice = on_detection(detection, resolved) or {}
+        if choice.get("type"):
+            options = {**options, "video_type": choice["type"]}
+        if choice.get("format"):
+            options = {**options, "format": choice["format"]}
+        if choice:
+            resolved = video_types.resolve_format(
+                detection, options.get("video_type"), options.get("format"))
+    options = video_types.apply_format(options, resolved["format"],
+                                       explicit_keys or set())
+    state = {
+        **state,
+        "detection": detection,
+        "format_recipe": resolved["format"],
+        "format": {
+            "name": resolved["format"]["name"],
+            "source": resolved["source"],
+            "needs_confirmation": resolved["needs_confirmation"],
+        },
+    }
+    return options, state
 
 
 def project_path(root, project_id):
@@ -234,7 +277,8 @@ def validate_segments(segments, duration):
     return result
 
 
-def run_project(path, action="all", preview=False, pick=None, resume=True, progress=None):
+def run_project(path, action="all", preview=False, pick=None, resume=True,
+                progress=None, on_detection=None, explicit_keys=None):
     """Prepare candidates or render saved candidates; checkpoint every successful clip."""
     path = Path(path).resolve()
     state = read_project(path)
@@ -395,12 +439,19 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
                 state["progress"] = {"stage": "transcribe", "done": 1,
                                      "total": 1, "detail": "complete"}
                 save_project(path, state)
-            stage("discover")
+            stage("detect")
             data = read_json(transcript_path)
+            detection = video_types.detect_from_transcript(
+                data, state.get("video"), path, options)
+            options, state = apply_detection(
+                path, state, options, detection, on_detection, explicit_keys)
+            save_project(path, state)
+            recipe = state["format_recipe"]
             discovery_key, selection_key = score_keys(transcript_key, data, options)
             candidates_path = path / "candidates.json"
             selection_path = path / "selection.json"
             segments_path = path / "segments.json"
+            stage("discover")
             if options["search"] or options["semantic"]:
                 combined_key = digest([discovery_key, selection_key])
                 if (not resume or state["cache"].get("score") != combined_key
@@ -413,7 +464,11 @@ def run_project(path, action="all", preview=False, pick=None, resume=True, progr
                         or not candidates_path.exists()):
                     score_clips.discover(
                         path, min_len=options["min_len"], max_len=options["max_len"],
-                        preferred_len=options["preferred_len"])
+                        preferred_len=options["preferred_len"],
+                        profile=recipe.get("profile"),
+                        band=(recipe["min_len"], recipe["max_len"]),
+                        detection=state.get("detection"),
+                        format_info=state.get("format"))
                     state["cache"]["discovery"] = discovery_key
                     save_project(path, state)
 

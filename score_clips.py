@@ -1500,17 +1500,20 @@ def attach_media_evidence(candidates, sections, timeline, profile, energy,
 
 
 def discover(workdir, min_len=15, max_len=300, preferred_len=None,
-             band=None, progress=None):
+             band=None, progress=None, profile=None, detection=None,
+             format_info=None):
     """Load the transcript, measure evidence, discover, write candidates.json."""
     workdir = Path(workdir)
     data = load_transcript(workdir)
     sentences = sentenceize(data.get("words") or [])
-    (timeline, profile, energy, _, audio_usable,
+    (timeline, detected_profile, energy, _, audio_usable,
      baseline) = source_evidence(workdir, data)
+    if profile in evidence.PROFILE_FLOORS:
+        detected_profile = profile
+    profile = detected_profile
     duration = float(data.get("duration")
                      or getattr(timeline, "duration", 0) or 0)
-    effective_band = (evidence.profile_band(profile)
-                      if band is None else band)
+    effective_band = band if band is not None else evidence.profile_band(profile)
     usable_timeline = timeline if audio_usable else None
     source_duration = duration or float(getattr(timeline, "duration", 0) or 0)
     source = data.get("video")
@@ -1571,6 +1574,10 @@ def discover(workdir, min_len=15, max_len=300, preferred_len=None,
         "visual_ranges": len(visual_ranges),
         "visual_sections": len(sections),
         "warnings": warnings,
+        "video_type": (detection or {}).get("type", "unknown"),
+        "format": (format_info or {}).get("name"),
+        "format_source": (format_info or {}).get("source"),
+        "detection": detection,
     })
     save_candidates(workdir, candidates, stats)
     return candidates, stats

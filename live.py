@@ -12,6 +12,7 @@ import projects
 import live_capture
 import live_clips
 import live_signals
+import video_types
 
 RIGHTS_NOTICE = (
     "Only clip streams you have the right to record and reuse. "
@@ -28,10 +29,13 @@ def next_action(health):
 
 
 class LiveSession:
-    def __init__(self, source, options, root, brief_text=None, session_id=None):
+    def __init__(self, source, options, root, brief_text=None, session_id=None,
+                 detection=None, format_info=None):
         self.id = session_id or uuid.uuid4().hex[:12]
         self.source = source
         self.options = projects.validate_options(options)
+        self.detection = detection
+        self.format = format_info
         self.dir = Path(root) / "live" / self.id
         self.dir.mkdir(parents=True, exist_ok=True)
         (self.dir / "buffer").mkdir(exist_ok=True)
@@ -86,6 +90,8 @@ class LiveSession:
             "triggers": [r.__dict__ for r in self.records],
             "errors": self.errors,
             "health": getattr(self, "health", {}),
+            "detection": getattr(self, "detection", None),
+            "format": getattr(self, "format", None),
         })
 
     def _capture_alive(self):
@@ -253,10 +259,24 @@ def _channel(url):
     return path.split("/")[0] if path else ""
 
 
-def run_live(url, options, root, on_log=None, brief_text=None):
+def run_live(url, options, root, on_log=None, brief_text=None, explicit_keys=None):
     """Start a live session and block until it stops."""
+    options = projects.validate_options(options)
+    if explicit_keys is None:
+        # Preserve settings already chosen by the caller (CLI flags or a format).
+        explicit_keys = {key for key, default in projects.DEFAULT_OPTIONS.items()
+                         if options.get(key) != default}
+    sig = video_types.signals_from_measurements(source=url)
+    detection = video_types.classify(sig)
+    resolved = video_types.resolve_format(
+        detection, options.get("video_type"), options.get("format"))
+    options = video_types.apply_format(options, resolved["format"], explicit_keys)
     source = live_capture.resolve_live_source(url, options)
-    session = LiveSession(source, options, root, brief_text=brief_text)
+    session = LiveSession(source, options, root, brief_text=brief_text,
+                          detection=detection, format_info={
+                              "name": resolved["format"]["name"],
+                              "source": resolved["source"],
+                              "needs_confirmation": resolved["needs_confirmation"]})
     session._on_log = on_log
     session.start()
     return session

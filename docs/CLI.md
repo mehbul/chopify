@@ -20,6 +20,57 @@ commands and project layout.
 | `--whisper-model` | `medium` | Model name passed to faster-whisper; common names are `tiny`, `base`, `small`, `medium`, and `large-v3`. | `small` |
 | `--device` | `cpu` | `cpu`, `cuda`, or `auto` for transcription. | `cuda` |
 
+## Video types and formats
+
+| Flag | Default | Accepted values and behavior | Example value |
+| --- | --- | --- | --- |
+| `--video-type` | `auto` | `auto` or one of `podcast`, `gaming`, `movie`, `livestream`, `interview`, `tutorial`, `music`, `unknown`. An explicit type overrides local detection; `auto` detects from cached audio, visual, transcript and source metadata signals. | `gaming` |
+| `--format` | none | A built-in or custom format name, or a path to a format JSON file. Overrides the detected type's default format. | `my_cast` |
+| `--video-type-model` | none | Optional local Ollama chat model used only to resolve uncertain detections. No cloud fallback. | `qwen2.5:7b` |
+| `--list-formats` | off | Print built-in and custom format names and exit. | (flag) |
+
+A format is a saved recipe that supplies existing options: clip length band,
+scoring profile, caption style, layout, fit, tighten, loudnorm, hook wording and
+(for streams) live thresholds. Explicit flags always win over format values.
+When detection is uncertain, an interactive run offers **use suggested / pick a
+format / build a new format**; `--no-input`, batch and agent runs use the best
+guess and record the choice without prompting.
+
+Built-in formats:
+
+| Type | Band (s) | Profile | Caption style | Layout / fit | Tighten | Loudnorm |
+| --- | --- | --- | --- | --- | --- | --- |
+| podcast / interview | 45–180 | talk | podcast | single / cover | yes | yes |
+| gaming | 15–60 | gameplay/action | bold | stacked / cover | no | no |
+| livestream | 15–90 | gameplay/action | bold | single / cover | no | no |
+| movie | 60–300 | mixed | minimal | single / contain | no | no |
+| tutorial | 30–180 | mixed | clean | single / cover | no | yes |
+| music | 15–90 | mixed | neon | single / cover | no | yes |
+| unknown | 30–120 | mixed | default | single / cover | no | no |
+
+A stacked or split layout is used only with `--aspect 9:16`; otherwise `single`
+is kept. A custom format is a JSON object validated on save:
+
+```json
+{
+  "name": "my_cast",
+  "video_type": "podcast",
+  "min_len": 45,
+  "max_len": 180,
+  "profile": "talk",
+  "caption_style": "podcast",
+  "layout": "single",
+  "fit": "cover",
+  "tighten": true,
+  "loudnorm": true,
+  "hook_style": "insight",
+  "live": {}
+}
+```
+
+Custom formats are stored in `formats/<name>.json` beside the app and appear in
+`--list-formats` and Studio.
+
 ## Live settings
 
 These options apply only with `--live`. See the [live clipping guide](LIVE.md)
