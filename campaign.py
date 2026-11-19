@@ -170,3 +170,53 @@ def load_rules(workdir):
     if not path.exists():
         return None
     return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
+def segment_texts(segments, workdir):
+    """Build one lowercase transcript string per segment for rule checks."""
+    data = json.loads((Path(workdir) / "transcript.json").read_text(encoding="utf-8-sig"))
+    words = data.get("words") or []
+    texts = []
+    for seg in segments:
+        start, end = float(seg["start"]), float(seg["end"])
+        texts.append(" ".join(str(w.get("word", "")).lower()
+                              for w in words if start <= w.get("start", 0) <= end))
+    return texts
+
+
+def _matches(text, phrase):
+    tokens = [t for t in phrase.lower().split() if len(t) > 2]
+    return bool(tokens) and all(t in text for t in tokens)
+
+
+def apply_rules(segments, rules, workdir, provider=None, command=None):
+    if not segments:
+        return [], []
+    texts = segment_texts(segments, workdir)
+    kept, kept_texts = [], []
+    for seg, text in zip(segments, texts):
+        if any(phrase in text for phrase in rules.get("banned", [])):
+            continue
+        if not all(_matches(text, phrase) for phrase in rules.get("must_mention", [])):
+            continue
+        kept.append(seg)
+        kept_texts.append(text)
+    if not kept:
+        return [], []
+    listing = "\n".join(f"{i}. {t[:600]}" for i, t in enumerate(kept_texts))
+    prompt = (
+        "Score each numbered text from 0 to 10 for how well it satisfies this "
+        f"campaign goal: {rules.get('goal','')}. Tone: {rules.get('tone','')}. "
+        f"CTA: {rules.get('cta','')}. Reply with ONLY JSON: "
+        '{"scores":[{"index":0,"score":8.5,"reason":"short"}]}.\n\n' + listing)
+    try:
+        data = parse_json_response(ask_llm(prompt, provider, command))
+        scores = sorted(data.get("scores", []),
+                        key=lambda s: float(s.get("score", 0)), reverse=True)
+        order = [int(s["index"]) for s in scores
+                 if 0 <= int(s.get("index", -1)) < len(kept)]
+        unique = list(dict.fromkeys(order))
+        kept = [kept[i] for i in unique] + [s for i, s in enumerate(kept) if i not in unique]
+        return kept, scores
+    except Exception:
+        return kept, []

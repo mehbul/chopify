@@ -46,3 +46,25 @@ def test_save_load_rules(tmp_path):
     rules = campaign.parse_brief("must include: x")
     campaign.save_rules(tmp_path, rules)
     assert campaign.load_rules(tmp_path)["must_mention"] == ["x"]
+
+
+def test_apply_rules_filters_and_scores(tmp_path, monkeypatch):
+    words = [
+        {"word": "night", "start": 0, "end": 0.5},
+        {"word": "mode", "start": 0.5, "end": 1},
+        {"word": "spoiler", "start": 1, "end": 1.5},
+    ]
+    (tmp_path / "transcript.json").write_text(
+        json.dumps({"video": "x.mp4", "duration": 2, "words": words}))
+    rules = campaign._normalize(
+        {"goal": "g", "must_mention": ["night mode"], "banned": ["spoiler"], "cta": ""},
+        "llm", "fake", "brief")
+    monkeypatch.setattr(campaign, "detect_provider",
+                        lambda *a, **k: ("fake", {"command": "fake {prompt}"}))
+    monkeypatch.setattr(campaign, "ask_llm",
+                        lambda prompt, *a, **k: '{"scores":[{"index":0,"score":9,"reason":"ok"}]}')
+    segments = [{"start": 0, "end": 1, "hook": "a"},
+                {"start": 1, "end": 2, "hook": "b"}]
+    kept, scores = campaign.apply_rules(segments, rules, tmp_path)
+    assert len(kept) == 1 and kept[0]["hook"] == "a"
+    assert scores[0]["score"] == 9
