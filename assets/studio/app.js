@@ -526,10 +526,60 @@ function renderSelectionSummary(detail) {
   box.textContent = lines.join("\n");
   box.hidden = false;
 }
+function renderDetection(detail) {
+  const banner = $("#detection-banner");
+  if (!banner) return;
+  const detection = detail.detection;
+  if (!detection) { banner.hidden = true; return; }
+  banner.hidden = false;
+  const confidence = Math.round((detection.confidence || 0) * 100);
+  const formatName = detail.format?.name || "unknown";
+  banner.textContent = `Detected: ${detection.type} (${confidence}%) · Using format: ${formatName}`;
+  const change = document.createElement("select");
+  change.setAttribute("aria-label", "Clipping format");
+  const formats = Object.keys((state.config && state.config.formats) || {});
+  for (const name of formats) {
+    const option = document.createElement("option");
+    option.value = name;
+    option.textContent = name;
+    option.selected = name === formatName;
+    change.appendChild(option);
+  }
+  change.addEventListener("change", async () => {
+    await api(`/api/projects/${state.id}/settings`, { format: change.value });
+    notice("Format saved. Prepare again to apply it.");
+  });
+  banner.appendChild(change);
+  const build = document.createElement("button");
+  build.type = "button";
+  build.textContent = "Build new format";
+  build.addEventListener("click", () => buildFormat(detail));
+  banner.appendChild(build);
+}
+
+async function buildFormat(detail) {
+  const name = window.prompt("New format name (lowercase):");
+  if (!name) return;
+  const base = detail.format_recipe || {};
+  const min = window.prompt("Minimum clip seconds", String(base.min_len || 30));
+  const max = window.prompt("Maximum clip seconds", String(base.max_len || 120));
+  try {
+    await api("/api/formats", {
+      ...base, name,
+      min_len: Number(min), max_len: Number(max),
+    });
+    notice("Format saved. Reload Studio to see it in the list.");
+    await config();
+  } catch (error) {
+    notice(error.message, true);
+  }
+}
+
 function renderDetail() {
   const detail = state.detail,
     p = detail.project,
     options = p.options;
+  renderDetection(detail);
   $("#project-id").textContent = `FAC ${String(p.id || "").slice(0, 6).toUpperCase()}`;
   $("#project-title").textContent = projectName(p.source);
   $("#project-source").textContent = p.source;
