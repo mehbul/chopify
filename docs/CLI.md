@@ -101,7 +101,9 @@ also shows the value in the `default` preset where applicable.
 | `--clips` | All selected candidates | Comma-separated candidate numbers to render from the score table. | `1,3,5` |
 | `--preview` | Off | Render fast 480p-class drafts without poster or metadata export. | No value |
 | `--brand` | No brand file | Path to a JSON brand preset. | `"brands/podcast.json"` |
-| `--layout` | `single` | `single` or `split`; split-screen requires vertical `9:16` output. | `split` |
+| `--layout` | `single` | `single`, `split`, or `stacked` (gaming facecam above gameplay). `split` and `stacked` require vertical `9:16` output. | `stacked` |
+| `--facecam-box` | none | Normalized `x y w h` (0–1) rectangle of the facecam in the source frame. Used by `stacked`; auto-detected when omitted. | `0 0.62 0.26 0.30` |
+| `--facecam-height` | `0.34` | Fraction of output height used by the facecam panel in `stacked` layout (0.20–0.60). | `0.4` |
 | `--centers` | `0.25 0.75` | Two finite horizontal speaker centers, each from `0` to `1`, for split-screen. | `0.2 0.8` |
 
 ## Batch and project

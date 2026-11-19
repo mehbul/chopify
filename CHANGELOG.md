@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a file instead of an undrained pipe.
 
 ### Added
+- Gaming `stacked` layout: facecam above gameplay with captions at the seam,
+  available in batch and live modes from CLI and Studio. `--facecam-box` sets an
+  explicit normalized rectangle; auto-detection is used when it is omitted.
 - `--fit contain` renders vertical clips without cropping: the whole 16:9 frame
   is scaled into 9:16 with black bars, useful for gameplay and screen captures.
   Live sessions forward the setting through CLI and Studio options.

@@ -35,7 +35,19 @@ A clip is saved when the combined score reaches `--live-threshold`, subject to
 `--live-cooldown`, `--live-max-clips`, and overlap deduplication. Output uses the
 same caption style, aspect ratio, and brand preset flags as batch mode.
 
-For gameplay or screen-recorded streams, use `--fit contain` with `--aspect 9:16`.
+For the TikTok-style gaming layout — facecam on top, gameplay below, captions at
+the seam — use `--layout stacked --aspect 9:16`:
+
+```bash
+chopify --live "https://www.twitch.tv/channel" --layout stacked --aspect 9:16 \
+  --facecam-box 0 0.62 0.26 0.30 --facecam-height 0.34
+```
+
+`--facecam-box` is normalized `x y w h` in the source frame. Omit it to
+auto-detect the face with the local detector; a bottom-left default is used if
+detection fails. This works for batch clips too.
+
+For gameplay or screen-recorded streams that should keep the whole frame, use `--fit contain` with `--aspect 9:16`.
 The default `cover` mode crops a vertical slice (following a detected face),
 which hides most of a landscape game frame. `contain` scales the whole frame and
 adds black bars instead of cropping.
