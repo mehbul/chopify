@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Chopify live clipping — verification</title>
+<style>
+  body { margin:0; background:#0d1117; color:#e6edf3; font:16px/1.5 -apple-system,Segoe UI,sans-serif; }
+  .card { max-width:900px; margin:40px auto; padding:36px; background:#161b22; border:1px solid #30363d; border-radius:14px; }
+  .badge { display:inline-block; padding:4px 12px; border-radius:999px; background:#1f6feb33; color:#79c0ff; font-size:13px; letter-spacing:.08em; }
+  h1 { margin:16px 0 4px; font-size:30px; }
+  .sub { color:#8b949e; margin-bottom:28px; }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:24px 0; }
+  .stat { background:#0d1117; border:1px solid #30363d; border-radius:10px; padding:16px; }
+  .stat b { display:block; font-size:26px; color:#7ee787; }
+  .stat span { color:#8b949e; font-size:13px; }
+  table { width:100%; border-collapse:collapse; }
+  td { padding:7px 0; border-bottom:1px solid #21262d; }
+  td:last-child { text-align:right; color:#79c0ff; }
+  .note { margin-top:22px; color:#8b949e; font-size:13px; }
+  code { background:#0d1117; padding:2px 6px; border-radius:4px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <span class="badge">LIVE CLIPPING VERIFIED</span>
+    <h1>Chopify · real-stream test</h1>
+    <div class="sub">2026-11-19 · Twitch HLS source · 100-second session · no stream media included</div>
+    <div class="grid">
+      <div class="stat"><b>100.15s</b><span>stream watched</span></div>
+      <div class="stat"><b>3</b><span>clips auto-saved</span></div>
+      <div class="stat"><b>0</b><span>session errors</span></div>
+      <div class="stat"><b>28</b><span>segments buffered</span></div>
+      <div class="stat"><b>1080×1920</b><span>rendered output</span></div>
+      <div class="stat"><b>4.90</b><span>peak hype score</span></div>
+    </div>
+    <table>
+      <tr><td>Source resolution</td><td>yt-dlp → HLS (twitch)</td></tr>
+      <tr><td>Signals</td><td>audio + visual + chat</td></tr>
+      <tr><td>Target duration</td><td>9:16, word captions, poster, SRT</td></tr>
+      <tr><td>Final clip size</td><td>7.8 MB</td></tr>
+      <tr><td>Signed URL / tokens</td><td>redacted</td></tr>
+    </table>
+    <p class="note">Four defects found by this test were fixed: partial-segment decoding,
+    raw visual frames, renderer keyword mismatch, and extra HLS stream mapping.
+    Full details: <code>docs/evidence/2026-11-19-live-twitch-verification.md</code>.
+    No third-party video, audio or frames are published here.</p>
+  </div>
+</body>
+</html>
