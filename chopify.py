@@ -179,6 +179,18 @@ def main():
     ap.add_argument("--version", action="version", version=f"Chopify {CHOPIFY_VERSION}")
     ap.add_argument("--list-styles", action="store_true",
                     help="print the caption style preset names and exit")
+    ap.add_argument("--live", metavar="URL", help="Watch a live HLS/RTMP stream and auto-clip hype moments")
+    ap.add_argument("--live-buffer", type=int, default=None)
+    ap.add_argument("--live-buffer-max-mb", type=int, default=None)
+    ap.add_argument("--live-pre-roll", type=int, default=None)
+    ap.add_argument("--live-tail", type=int, default=None)
+    ap.add_argument("--live-window", type=int, default=None)
+    ap.add_argument("--live-threshold", type=float, default=None)
+    ap.add_argument("--live-cooldown", type=int, default=None)
+    ap.add_argument("--live-max-clips", type=int, default=None)
+    ap.add_argument("--live-no-chat", action="store_true", default=None)
+    ap.add_argument("--live-no-transcript", action="store_true", default=None)
+    ap.add_argument("--live-header", dest="live_headers", action="append", default=None)
     ap.add_argument("url", nargs="?", help="local video path or yt-dlp-supported URL")
     ap.add_argument("--workdir", default="work", help="intermediate files dir")
     ap.add_argument("--aspect", default="16:9", choices=["16:9", "9:16", "1:1"],
@@ -238,6 +250,30 @@ def main():
     if args.list_styles:
         for name in render_clips.CAPTION_STYLES:
             print(name)
+        return
+    if args.live:
+        if args.url or args.batch or args.project:
+            ap.error("--live cannot be combined with --url, --batch or --project.")
+        if not args.no_preflight:
+            problems = check_environment()
+            if problems:
+                print("PREFLIGHT FAILED - fix these and re-run "
+                      "(or bypass with --no-preflight):", flush=True)
+                for p in problems:
+                    print("  - " + p, flush=True)
+                sys.exit(1)
+        import projects
+        import live
+        try:
+            caption = render_clips.caption_from_args(args)
+        except ValueError as exc:
+            ap.exit(1, f"Caption: {exc}\n")
+        live_options = {key: getattr(args, key) for key in projects.DEFAULT_OPTIONS
+                        if getattr(args, key, None) is not None}
+        live_options["caption"] = caption
+        if live_options.get("brand"):
+            live_options["brand"] = str(Path(live_options["brand"]).resolve())
+        live.run_live(args.live, live_options, Path(args.projects_dir).resolve())
         return
     if not (args.url or args.batch or args.project):
         ap.error("provide a local video, URL, --batch file, or --project directory")

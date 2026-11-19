@@ -1219,3 +1219,22 @@ def test_live_options_headers():
         projects.validate_options({"live_headers": ["not-a-header"]})
     with pytest.raises(ValueError):
         projects.validate_options({"live_headers": "X-Key: abc"})
+
+
+def test_live_flag_is_exposed(monkeypatch):
+    import chopify
+    import live
+    seen = {}
+
+    def fake_run_live(url, options, root, on_log=None):
+        seen.update(url=url, options=options, root=root)
+        return None
+
+    monkeypatch.setattr(live, "run_live", fake_run_live)
+    monkeypatch.setattr(chopify, "check_environment", lambda: None)
+    monkeypatch.setattr(sys, "argv", [
+        "chopify", "--live", "https://x/l.m3u8", "--live-threshold", "7.5",
+        "--no-preflight"])
+    chopify.main()
+    assert seen["url"] == "https://x/l.m3u8"
+    assert seen["options"]["live_threshold"] == 7.5
