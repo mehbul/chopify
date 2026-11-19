@@ -266,8 +266,23 @@
                 >Framing<select name="layout">
                   <option value="single">Single frame / face tracking</option>
                   <option value="split">Podcast · two stacked speakers</option>
+                  <option value="stacked">Gaming · facecam + gameplay</option>
                 </select></label
               >
+              <label
+                >Facecam box (x y w h, blank = auto)<input
+                  id="facecam-box"
+                  placeholder="0 0.62 0.26 0.30"
+              /></label>
+              <label
+                >Facecam height<input
+                  id="facecam-height"
+                  type="number"
+                  min="0.2"
+                  max="0.6"
+                  step="0.01"
+                  value="0.34"
+              /></label>
               <p class="hint">
                 Split-screen uses 9:16. Set each speaker's horizontal position
                 for fixed-camera footage.

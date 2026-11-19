@@ -243,7 +243,12 @@ def main():
     ap.add_argument("--semantic", help="find clips by meaning with local embeddings")
     ap.add_argument("--embed-model", default="nomic-embed-text")
     ap.add_argument("--brand", help="JSON brand preset path")
-    ap.add_argument("--layout", choices=["single", "split"], default="single")
+    ap.add_argument("--layout", choices=["single", "split", "stacked"], default="single")
+    ap.add_argument("--facecam-box", type=float, nargs=4, default=None,
+                    metavar=("X", "Y", "W", "H"),
+                    help="normalized facecam rectangle x y w h (0-1) for --layout stacked")
+    ap.add_argument("--facecam-height", type=float, default=None,
+                    help="facecam panel fraction of output height, 0.20-0.60 (default 0.34)")
     ap.add_argument("--centers", type=float, nargs=2, default=[0.25, 0.75],
                     help="horizontal speaker centers from 0 to 1 for split-screen")
     ap.add_argument("--device", choices=["cpu", "cuda", "auto"], default="cpu")

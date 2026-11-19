@@ -562,6 +562,10 @@ function renderDetail() {
   }
   form.elements.center1.value = options.centers[0];
   form.elements.center2.value = options.centers[1];
+  $("#facecam-box").value = options.facecam_box
+    ? options.facecam_box.join(" ")
+    : "";
+  $("#facecam-height").value = options.facecam_height ?? 0.34;
   const brand = options.brand
     ? basename(options.brand).replace(/\.json$/, "")
     : "";
@@ -752,6 +756,16 @@ $("#settings-form").addEventListener(
     values.centers = [Number(values.center1), Number(values.center2)];
     delete values.center1;
     delete values.center2;
+    const facecamText = ($("#facecam-box")?.value || "").trim();
+    let facecamBox = null;
+    if (facecamText) {
+      const parts = facecamText.split(/[\s,]+/).map(Number);
+      if (parts.length === 4 && parts.every(Number.isFinite)) facecamBox = parts;
+    }
+    values.facecam_box = facecamBox;
+    const facecamHeight = Number($("#facecam-height")?.value);
+    if (Number.isFinite(facecamHeight))
+      values.facecam_height = facecamHeight;
     values.llm = values.llm.trim() || null;
     values.search = null;
     values.semantic = null;

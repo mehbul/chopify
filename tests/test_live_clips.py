@@ -37,6 +37,29 @@ def test_remap_words():
         {"word": "bye", "start": 3.0, "end": 3.5}]
 
 
+def test_writer_forwards_facecam_options(tmp_path, monkeypatch):
+    import projects
+
+    options = projects.validate_options({
+        "layout": "stacked", "aspect": "9:16",
+        "facecam_box": [0, 0.6, 0.3, 0.3], "facecam_height": 0.4})
+    segment = tmp_path / "segment00000000.ts"
+    segment.write_bytes(b"x")
+    writer = live_clips.LiveClipWriter(tmp_path / "s")
+    monkeypatch.setattr(live_clips, "stitch", lambda p, d, runner=None: d)
+    seen = {}
+
+    def fake_render(seg, words, source, W, H, workdir, aspect, **kw):
+        seen.update(kw)
+
+    writer.write(live_clips.Trigger(20.0, 9.0, {}), options,
+                 {"width": 640, "height": 360}, [], [segment],
+                 renderer=fake_render)
+    assert seen["layout"] == "stacked"
+    assert seen["facecam_box"] == [0, 0.6, 0.3, 0.3]
+    assert seen["facecam_height"] == 0.4
+
+
 def test_writer_passes_fit_to_renderer(tmp_path, monkeypatch):
     import projects
 
