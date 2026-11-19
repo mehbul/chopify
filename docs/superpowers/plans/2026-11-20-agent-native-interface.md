@@ -1214,6 +1214,8 @@ def main(argv=None):
         emit_error(op_name, request_id, exc, stream=real_stdout)
         if exc.exit_code is not None:
             return exc.exit_code
+        if exc.code in ("INVALID_ARGUMENT", "INVALID_OPTIONS"):
+            return EXIT_INVALID
         return EXIT_TIMEOUT if exc.code == "TIMEOUT" else EXIT_FAILED
     except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
         emit_error(op_name, request_id,
