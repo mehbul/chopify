@@ -180,7 +180,7 @@ def segment_texts(segments, workdir):
     for seg in segments:
         start, end = float(seg["start"]), float(seg["end"])
         texts.append(" ".join(str(w.get("word", "")).lower()
-                              for w in words if start <= w.get("start", 0) <= end))
+                              for w in words if start <= w.get("start", 0) < end))
     return texts
 
 
