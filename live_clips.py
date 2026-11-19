@@ -96,7 +96,7 @@ class LiveClipWriter:
             render_fn(seg, remap_words(words, start, end), window,
                       probe["width"], probe["height"], str(self.session_dir),
                       options["aspect"], out_dir=str(self.clips_dir),
-                      style=options["style"], tighten=options["tighten"],
+                      style=options["style"], do_tighten=options["tighten"],
                       loudnorm=options["loudnorm"], brand=options["brand"],
                       layout=options["layout"], centers=options["centers"],
                       caption=options["caption"])

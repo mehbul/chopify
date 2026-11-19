@@ -85,7 +85,7 @@ class SegmentBuffer:
                "-reconnect_delay_max", "5", "-rw_timeout", "15000000"]
         if self.headers:
             cmd += ["-headers", "".join(h + "\r\n" for h in self.headers)]
-        cmd += ["-i", self.url, "-map", "0", "-c", "copy",
+        cmd += ["-i", self.url, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy",
                 "-f", "segment", "-segment_time", str(SEGMENT_SECONDS),
                 "-reset_timestamps", "1", str(self.directory / "segment%08d.ts")]
         return cmd
@@ -93,9 +93,11 @@ class SegmentBuffer:
     def start(self):
         self.directory.mkdir(parents=True, exist_ok=True)
         self.started_at = time.time()
+        self.log_path = self.directory / "ffmpeg.log"
+        self._log_handle = self.log_path.open("a", encoding="utf-8")
         self.process = subprocess.Popen(
             self.ffmpeg_command(), stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL)
+            stderr=self._log_handle)
         self._cleaner = threading.Thread(target=self._clean_loop, daemon=True)
         self._cleaner.start()
         return self
@@ -117,12 +119,19 @@ class SegmentBuffer:
             ingest._kill_tree(self.process)
         if self._cleaner is not None:
             self._cleaner.join(timeout=2.0)
+        if getattr(self, "_log_handle", None) is not None:
+            self._log_handle.close()
+            self._log_handle = None
 
     def segments(self):
         if not self.directory.exists():
             return []
         return sorted(p for p in self.directory.glob("segment[0-9]*.ts")
                       if re.fullmatch(r"segment\d{8}\.ts", p.name))
+
+    def ready_segments(self):
+        """Segments safe to decode: the newest one is still being written."""
+        return self.segments()[:-1]
 
     @staticmethod
     def index_of(path):

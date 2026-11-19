@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Live sessions now decode only completed HLS segments instead of the segment
+  being written, avoiding partial-file decode failures.
+- Visual signal frames are reshaped from raw ffmpeg bytes before analysis.
+- Live clip rendering passes `do_tighten` to the renderer with its actual name.
+- Live capture maps only the first video and audio streams, avoiding DTS muxer
+  failures on streams that expose extra data streams, and logs ffmpeg errors to
+  a file instead of an undrained pipe.
+
 ### Added
 - Live clipping from HLS/RTMP URLs: `chopify --live URL` watches a stream with a
   rolling segment buffer, scores audio, visual motion, transcript and chat hype

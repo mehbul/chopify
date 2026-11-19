@@ -95,4 +95,15 @@ def test_start_does_not_pipe_ffmpeg_stderr(tmp_path, monkeypatch):
     buffer.start()
     buffer.stop()
     assert captured["stdout"] is subprocess.DEVNULL
-    assert captured["stderr"] is subprocess.DEVNULL
+    assert captured["stderr"] is not subprocess.PIPE
+    assert hasattr(captured["stderr"], "write")
+    assert (tmp_path / "ffmpeg.log").exists()
+
+
+def test_ready_segments_excludes_newest(tmp_path):
+    buffer = live_capture.SegmentBuffer(
+        tmp_path, "https://x/live.m3u8", {"live_headers": []})
+    for i in range(3):
+        (tmp_path / f"segment{i:08d}.ts").write_bytes(b"x")
+    assert [p.name for p in buffer.ready_segments()] == [
+        "segment00000000.ts", "segment00000001.ts"]

@@ -117,7 +117,9 @@ class BaseAnalyzer:
         self._seen = set()
 
     def _new_segments(self):
-        return [p for p in self.buffer.segments()
+        ready = getattr(self.buffer, "ready_segments", None)
+        segments = ready() if callable(ready) else self.buffer.segments()
+        return [p for p in segments
                 if self.buffer.index_of(p) not in self._seen]
 
     def _decode(self, path):
@@ -175,7 +177,9 @@ class VisualAnalyzer(BaseAnalyzer):
         raw = result.stdout
         frame_size = 160 * 90 * 3
         count = len(raw) // frame_size
-        return [raw[i * frame_size:(i + 1) * frame_size] for i in range(count)]
+        return [np.frombuffer(raw[i * frame_size:(i + 1) * frame_size],
+                              dtype=np.uint8).reshape(90, 160, 3)
+                for i in range(count)]
 
     def _publish(self, index, frames):
         if not frames:
