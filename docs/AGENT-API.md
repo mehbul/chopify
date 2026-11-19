@@ -168,7 +168,13 @@ with JSON Schemas — it is the source of truth for commands, inputs and errors.
 Commands: `describe`, `preflight`, `styles`,
 `project create|get|prepare|render|wait`, `batch create|wait`,
 `live start|status|stop`. Use `--help` on any subcommand for flags;
-`--options-json` accepts a JSON object of the options documented above.
+`--options-json` accepts a JSON object of the options documented above. It also
+accepts `video_type` (`auto` or one of `podcast`, `gaming`, `movie`, `livestream`,
+`interview`, `tutorial`, `music`, `unknown`), `format` (a built-in or custom
+format name, or a JSON path) and `video_type_model` (optional local Ollama model
+for uncertain detections). Auto mode is silent: agents are never prompted. Read
+back `detection`, `format` and `format_recipe` from project state and from
+`candidates.json` / `selection.json` stats.
 
 Each command emits `start`, zero or more `progress`, then `result` or `error`.
 
