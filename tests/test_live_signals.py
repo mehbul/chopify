@@ -133,3 +133,22 @@ def test_transcript_score_from_cues():
     assert live_signals.transcript_score([
         {"word": "the", "start": 0.0, "end": 0.2},
         {"word": "a", "start": 0.2, "end": 0.4}]) == 0.0
+
+
+def test_ad_slate_detection():
+    flat = np.zeros((90, 160, 3), dtype=np.uint8)
+    flat[:, :, 0] = 200
+    flat[:, :, 2] = 220
+    assert live_signals.looks_like_ad_slate(flat)
+    noisy = np.random.RandomState(1).randint(0, 255, (90, 160, 3)).astype(np.uint8)
+    assert not live_signals.looks_like_ad_slate(noisy)
+
+
+def test_analyzer_tracks_ad_like():
+    analyzer = live_signals.VisualAnalyzer.__new__(live_signals.VisualAnalyzer)
+    analyzer.ad_like = False
+    frame = np.zeros((90, 160, 3), dtype=np.uint8)
+    frame[:, :, 0] = 200
+    frame[:, :, 2] = 220
+    analyzer._mark_ad(frame)
+    assert analyzer.ad_like

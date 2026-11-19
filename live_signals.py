@@ -23,6 +23,24 @@ SIGNALS = tuple(DEFAULT_WEIGHTS)
 # Minimum dynamic range used as the denominator when a signal is steady.
 SCALES = {"audio": 0.05, "visual": 0.05, "transcript": 1.0, "chat": 2.0}
 
+# Best-effort ad-slate detection: flat fields with strong magenta/cyan tint.
+AD_MIN_SATURATION = 0.35
+AD_MAX_TEXTURE = 12.0
+
+
+def looks_like_ad_slate(frame):
+    """Best-effort check for a flat, saturated Twitch ad slate."""
+    import cv2
+    image = np.asarray(frame, dtype=np.uint8)
+    if image.ndim != 3 or image.shape[2] != 3:
+        return False
+    small = cv2.resize(image, (80, 45), interpolation=cv2.INTER_AREA)
+    gray = cv2.cvtColor(small, cv2.COLOR_RGB2GRAY)
+    texture = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+    hsv = cv2.cvtColor(small, cv2.COLOR_RGB2HSV)
+    saturation = float(np.mean(hsv[:, :, 1])) / 255.0
+    return texture < AD_MAX_TEXTURE and saturation > AD_MIN_SATURATION
+
 
 class SignalBus:
     """Thread-safe, time-tagged samples with bounded retention."""
@@ -169,6 +187,14 @@ class VisualAnalyzer(BaseAnalyzer):
     name = "visual"
     delay = 0.5
 
+    def __init__(self, buffer, bus):
+        super().__init__(buffer, bus)
+        self.ad_like = False
+
+    def _mark_ad(self, frame):
+        if looks_like_ad_slate(frame):
+            self.ad_like = True
+
     def _decode(self, path):
         cmd = ["ffmpeg", "-v", "error", "-i", str(path), "-vf",
                "fps=2,scale=160:90", "-pix_fmt", "rgb24",
@@ -184,6 +210,8 @@ class VisualAnalyzer(BaseAnalyzer):
     def _publish(self, index, frames):
         if not frames:
             return
+        for frame in frames:
+            self._mark_ad(frame)
         features = visual.features_from_frames(frames)
         for i, value in enumerate(features.motion):
             t = self.buffer.index_to_time(index) + i / 2.0
