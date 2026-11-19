@@ -21,7 +21,7 @@ LIVE_DEFAULTS = {
     "live_buffer": 300, "live_buffer_max_mb": 512, "live_pre_roll": 30,
     "live_tail": 5, "live_window": 10, "live_threshold": 8.0,
     "live_cooldown": 60, "live_max_clips": 10, "live_no_chat": False,
-    "live_no_transcript": False, "live_headers": [],
+    "live_no_transcript": False, "live_headers": [], "live_skip_ads": False,
 }
 
 DEFAULT_OPTIONS = {"aspect": "16:9", "fit": "cover", "style": "default", "tighten": False,

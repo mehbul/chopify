@@ -190,6 +190,8 @@ def main():
     ap.add_argument("--live-max-clips", type=int, default=None)
     ap.add_argument("--live-no-chat", action="store_true", default=None)
     ap.add_argument("--live-no-transcript", action="store_true", default=None)
+    ap.add_argument("--live-skip-ads", action="store_true", default=None,
+                    help="suppress clip triggers while a flat ad slate is detected")
     ap.add_argument("--live-header", dest="live_headers", action="append", default=None)
     ap.add_argument("--brief", default=None,
                     help="campaign requirements text (conflicts with --brief-file)")

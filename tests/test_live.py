@@ -52,3 +52,19 @@ def test_state_round_trip(tmp_path):
     assert data["status"] == "running"
     assert data["started_at"] == 1000.0
     assert data["source"]["platform"] == "generic"
+
+
+def test_health_state_saved(tmp_path):
+    from live_capture import LiveSource
+    source = LiveSource("https://x/l.m3u8", "hls", "generic", "passthrough", [])
+    session = live.LiveSession(source, {}, tmp_path)
+    session.health["state"] = "degraded"
+    session._save()
+    data = live.projects.read_json(session.dir / "live_session.json")
+    assert data["health"]["state"] == "degraded"
+    assert "last_segment_age" in data["health"]
+
+
+def test_next_action():
+    assert "segments" in live.next_action({"state": "degraded"}).lower()
+    assert live.next_action({"state": "ok"}) == "Watching"

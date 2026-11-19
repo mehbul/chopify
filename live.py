@@ -19,6 +19,14 @@ RIGHTS_NOTICE = (
 )
 
 
+def next_action(health):
+    """Plain-language next step for a health state."""
+    return {"ok": "Watching",
+            "degraded": "Waiting for segments",
+            "failed": "Check the URL or restart Studio"}.get(
+                health.get("state"), "Watching")
+
+
 class LiveSession:
     def __init__(self, source, options, root, brief_text=None):
         self.id = uuid.uuid4().hex[:12]
@@ -44,6 +52,14 @@ class LiveSession:
             campaign.save_rules(self.dir, self.rules)
             if self.rules.get("warning"):
                 self._log(f"Brief warning: {self.rules['warning']}")
+        self.health = {
+            "state": "ok", "ffmpeg_alive": True, "last_segment_age": 0.0,
+            "restarts": 0, "refreshes": 0, "warnings": [],
+            "brief_provider": (self.rules or {}).get("provider", "none"),
+            "brief_source": (self.rules or {}).get("source", "none"),
+        }
+        self._last_refresh = time.time()
+        self._restart_delays = (1, 2, 4)
         self._analyzers_started = False
         self.buffer = None
         self.analyzers = []
@@ -69,7 +85,40 @@ class LiveSession:
             "recent_scores": self.recent_scores,
             "triggers": [r.__dict__ for r in self.records],
             "errors": self.errors,
+            "health": getattr(self, "health", {}),
         })
+
+    def _capture_alive(self):
+        segments = sorted((self.dir / "buffer").glob("segment*.ts"))
+        if not segments:
+            self.health["last_segment_age"] = 999.0
+            return False
+        self.health["last_segment_age"] = round(
+            time.time() - max(p.stat().st_mtime for p in segments), 1)
+        alive = self.buffer is not None and self.buffer.alive
+        self.health["ffmpeg_alive"] = alive
+        return alive and self.health["last_segment_age"] < 20
+
+    def _restart_capture(self):
+        delay = self._restart_delays[min(self.health["restarts"], 2)]
+        self.health["restarts"] += 1
+        self.health["state"] = "degraded"
+        self._log(f"Capture stalled; restarting in {delay}s ({next_action(self.health)}).")
+        if self.buffer is not None:
+            self.buffer.stop()
+        time.sleep(delay)
+        if self.source.page_url and self.health["restarts"] >= 1:
+            try:
+                self.source = self.source.refresh(self.options)
+                self.health["refreshes"] += 1
+                self._log("Stream token refreshed.")
+            except Exception as exc:
+                self.health["warnings"].append(f"Refresh failed: {exc}")
+        try:
+            self.buffer = live_capture.SegmentBuffer(
+                self.dir / "buffer", self.source.url, self.options).start()
+        except Exception as exc:
+            self.health["warnings"].append(f"Restart failed: {exc}")
 
     def _allowed(self, score, now):
         if score < self.options["live_threshold"]:
@@ -136,33 +185,52 @@ class LiveSession:
             self.recent_scores.append(result["score"])
             self.recent_scores = self.recent_scores[-60:]
             if probe is not None and self._allowed(result["score"], self.stream_time):
-                transcript = next(
-                    (analyzer for _, analyzer in self.analyzers
-                     if isinstance(analyzer, live_signals.TranscriptAnalyzer)), None)
-                if self.rules and not self._brief_allows(transcript, self.stream_time):
-                    self._log("Brief rules not met; skipping clip.")
+                if self.options.get("live_skip_ads") and any(
+                        getattr(a, "ad_like", False) for _, a in self.analyzers):
+                    self._log("ad-like frame; clip suppressed")
                 else:
-                    self.last_trigger = self.stream_time
-                    self._log(f"Hype detected: score={result['score']}")
-                    record = self.writer.write(
-                        live_clips.Trigger(self.last_trigger, result["score"], result["signals"]),
-                        self.options, probe,
-                        list(transcript.words) if transcript else [],
-                        self.buffer.window(
-                            max(0.0, self.last_trigger - self.options["live_buffer"]),
-                            self.last_trigger + self.options["live_tail"]))
-                    self.records.append(record)
-                    if record.error:
-                        self.errors.append(record.error)
-                        self._log(f"Clip failed: {record.error}")
+                    transcript = next(
+                        (analyzer for _, analyzer in self.analyzers
+                         if isinstance(analyzer, live_signals.TranscriptAnalyzer)), None)
+                    if self.rules and not self._brief_allows(transcript, self.stream_time):
+                        self._log("Brief rules not met; skipping clip.")
                     else:
-                        self._log(f"Clip saved: {record.id}")
+                        self.last_trigger = self.stream_time
+                        self._log(f"Hype detected: score={result['score']}")
+                        record = self.writer.write(
+                            live_clips.Trigger(self.last_trigger, result["score"], result["signals"]),
+                            self.options, probe,
+                            list(transcript.words) if transcript else [],
+                            self.buffer.window(
+                                max(0.0, self.last_trigger - self.options["live_buffer"]),
+                                self.last_trigger + self.options["live_tail"]))
+                        self.records.append(record)
+                        if record.error:
+                            self.errors.append(record.error)
+                            self._log(f"Clip failed: {record.error}")
+                        else:
+                            self._log(f"Clip saved: {record.id}")
             self._save()
-            if not self.buffer.alive:
-                self.status = "stopped"
-                self.stopped_at = time.time()
-                self._log("Source ended.")
-                break
+            if self.buffer is not None and self.source.page_url and (
+                    time.time() - self._last_refresh > 600):
+                self._last_refresh = time.time()
+                try:
+                    refreshed = self.source.refresh(self.options)
+                    self.source = refreshed
+                    self.health["refreshes"] += 1
+                    self._log("Stream token refreshed on schedule.")
+                except Exception as exc:
+                    self.health["warnings"].append(f"Refresh failed: {exc}")
+            if not self._capture_alive():
+                if self.health["restarts"] >= 3:
+                    self.health["state"] = "failed"
+                    self.status = "failed"
+                    self.stopped_at = time.time()
+                    self._log(f"Capture failed: {next_action(self.health)}")
+                    break
+                self._restart_capture()
+            else:
+                self.health["state"] = "ok"
         self._save()
 
     def stop(self):
