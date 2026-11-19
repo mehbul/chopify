@@ -21,3 +21,4 @@ _site/
 # local AI agent state
 .mimosa/
 .zcode/
+.taste-skill/

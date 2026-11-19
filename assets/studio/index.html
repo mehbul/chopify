@@ -17,7 +17,7 @@
         ></a
       >
       <div class="local">
-        <span class="dot"></span> Processing stays on this computer
+        <span class="dot"></span> Files stay on this computer
       </div>
       <button id="new-project" class="primary wide">＋ New project</button>
       <button id="show-live" class="wide">● Live clipping</button>
@@ -28,23 +28,23 @@
         <p class="muted">No projects yet.</p>
       </nav>
       <div class="rail-footer">
-        Your footage. Your machine.<br /><span
-          >Whisper · ffmpeg · optional Ollama</span
+        Local files · ffmpeg · Whisper<br /><span
+          >No upload, no subscription</span
         >
       </div>
     </aside>
     <main>
       <header class="topbar">
-        <span>THE LOCAL CUTTING ROOM</span
+        <span>CHOPIFY / STUDIO</span
         ><span id="connection"><span class="dot"></span> Local session</span>
       </header>
       <div id="notice" role="status" aria-live="polite" hidden></div>
       <section id="new-view" class="view">
         <div class="intro">
           <span class="eyebrow">FROM LONG FORM TO THE GOOD PART</span>
-          <h1>Find the moment.<br /><em>Make the cut.</em></h1>
+          <h1>Pick the clips.<br /><em>Export them.</em></h1>
           <p>
-            Turn recordings into captioned clips. Review every pick before you
+            Turn a recording into short, captioned clips. Review every pick before
             export.
           </p>
         </div>
@@ -116,26 +116,26 @@
         </form>
         <div class="workflow">
           <div>
-            <b>Find</b>
-            <p>Transcribe and pick complete moments.</p>
+            <b>Score</b>
+            <p>Transcribe the recording and shortlist complete moments.</p>
           </div>
           <div>
             <b>Refine</b>
-            <p>Correct captions. Set your framing.</p>
+            <p>Fix words, timing, and framing.</p>
           </div>
           <div>
             <b>Export</b>
-            <p>Choose your clips. Save MP4 + SRT.</p>
+            <p>Render MP4 and SRT for the clips you selected.</p>
           </div>
         </div>
       </section>
       <section id="live-view" class="view" hidden>
         <div class="intro">
           <span class="eyebrow">WATCH · DETECT · CUT</span>
-          <h1>Catch it <em>live.</em></h1>
+          <h1>Clip <em>live streams.</em></h1>
           <p>
-            Paste a live stream URL. Chopify watches it locally, detects hype,
-            and saves finished captioned clips.
+            Paste a stream URL. Chopify watches it on this computer and saves
+            captioned clips when the hype signals fire.
           </p>
         </div>
         <form id="live-form" class="panel input-panel">
@@ -158,11 +158,14 @@
       <section id="project-view" class="view" hidden>
         <div class="project-heading">
           <div>
-            <span class="eyebrow" id="project-id"></span>
+            <span id="project-id"></span>
             <h1 id="project-title">Project</h1>
             <p id="project-source" class="muted"></p>
           </div>
           <span id="status" class="status"></span>
+          <div class="pulse-frame" aria-hidden="true">
+            <canvas id="job-pulse" width="1200" height="92"></canvas>
+          </div>
         </div>
         <p id="job-error" role="alert" hidden></p>
         <div class="workspace">
@@ -262,7 +265,7 @@
             </details>
           </div>
           <aside class="settings panel">
-            <div class="panel-title"><h2>Make it yours</h2></div>
+            <div class="panel-title"><h2>Render settings</h2></div>
             <form id="settings-form">
               <label
                 >Format<select name="aspect">

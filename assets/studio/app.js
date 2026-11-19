@@ -403,8 +403,10 @@ function updateStatus(detail) {
     detail.busy && progress.stage && Number.isFinite(total) && total > 0
       ? ` · ${progress.stage} ${Number(progress.done) || 0}/${total}`
       : "";
-  $("#status").textContent =
+  const statusEl = $("#status");
+  statusEl.textContent =
     `${detail.project.status} · ${detail.project.stage}${progressText}`;
+  statusEl.dataset.state = detail.project.status || "";
   const errors = detail.render_errors || [];
   const error =
     detail.project.error ||
@@ -528,7 +530,7 @@ function renderDetail() {
   const detail = state.detail,
     p = detail.project,
     options = p.options;
-  $("#project-id").textContent = `PROJECT / ${p.id}`;
+  $("#project-id").textContent = `FAC ${String(p.id || "").slice(0, 6).toUpperCase()}`;
   $("#project-title").textContent = projectName(p.source);
   $("#project-source").textContent = p.source;
   const player = $("#source-player");
@@ -1152,4 +1154,43 @@ setInterval(async () => {
 safe(async () => {
   await config();
   await refreshProjects();
+})();
+
+/* Signal Desk: one authored motion — a hairline pulse for the current job. */
+(() => {
+  const canvas = $("#job-pulse");
+  if (!canvas || !canvas.getContext) return;
+  const ctx = canvas.getContext("2d");
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let phase = 0;
+  function scores() {
+    const detail = state.detail;
+    if (!detail) return [];
+    const history = detail.recent_scores || [];
+    if (history.length) return history.slice(-60).map(Number);
+    const progress = detail.progress || {};
+    const total = Number(progress.total) || 0;
+    return total ? Array.from({ length: 24 }, (_, i) => i < Number(progress.done) || 0 ? 8 : 2) : [];
+  }
+  function draw() {
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    const values = scores();
+    const count = Math.max(32, Math.min(120, values.length || 48));
+    const step = w / count;
+    for (let i = 0; i < count; i += 1) {
+      const v = values.length ? values[i % values.length] : 2 + Math.sin((i + phase) * 0.35) * 1.6;
+      const amp = Math.max(2, Math.min(1, v / 10) * (h - 16));
+      const active = !values.length && Math.abs(i - (phase % count)) < 1;
+      ctx.strokeStyle = active ? "#d4ef83" : "#3a4547";
+      ctx.lineWidth = active ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(i * step + step / 2, h / 2 - amp / 2);
+      ctx.lineTo(i * step + step / 2, h / 2 + amp / 2);
+      ctx.stroke();
+    }
+    phase += 0.12;
+    if (!reduced) requestAnimationFrame(draw);
+  }
+  draw();
 })();
