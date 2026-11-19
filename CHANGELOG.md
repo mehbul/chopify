@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Live clipping from HLS/RTMP URLs: `chopify --live URL` watches a stream with a
+  rolling segment buffer, scores audio, visual motion, transcript and chat hype
+  in real time, and automatically saves finished 9:16 captioned clips. A Live
+  tab in Studio starts/stops sessions and shows the score and clip feed.
+- `docs/LIVE.md` covers live sources, signals, options, session files, and the
+  rights notice; linked from README, CLI reference, and `llms.txt`.
 - `python chopify.py --version` prints the release version and exits 0 without
   requiring a source, ffmpeg or network.
 - `python chopify.py --list-styles` prints the 13 caption preset names and

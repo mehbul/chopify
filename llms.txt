@@ -8,6 +8,7 @@
 - [Workflow guide](https://github.com/mehbul/chopify/blob/main/docs/WORKFLOWS.md): local input, batch, resume, any-length sources, long-source Studio previews, caption editing and styling, branding, semantic search, split-screen, and project files.
 - [CLI flag reference](https://github.com/mehbul/chopify/blob/main/docs/CLI.md): every `chopify.py` flag with defaults, accepted values, and examples.
 - [Agent and API reference](https://github.com/mehbul/chopify/blob/main/docs/AGENT-API.md): CLI, Python interfaces, JSON formats, and authenticated loopback HTTP endpoints.
+- [Live clipping guide](https://github.com/mehbul/chopify/blob/main/docs/LIVE.md): live HLS/RTMP sources, hype signals, CLI options, Studio Live tab, session files, and rights notes.
 - [Troubleshooting](https://github.com/mehbul/chopify/blob/main/docs/TROUBLESHOOTING.md): ffmpeg, models, captions, CUDA, and failed jobs.
 - [Product facts](https://github.com/mehbul/chopify/blob/main/docs/product.json): machine-readable capabilities, requirements, licensing, and exclusions.
 - [Changelog](https://github.com/mehbul/chopify/blob/main/CHANGELOG.md): changes and release history.
@@ -15,7 +16,8 @@
 ## Product facts
 
 - `python dashboard.py` opens Studio at `http://127.0.0.1:8765`; `python chopify.py SOURCE` runs the CLI.
-- Inputs: local MP4, MOV, MKV, WebM, M4V, AVI, or yt-dlp-supported HTTP(S) URLs.
+- Inputs: local MP4, MOV, MKV, WebM, M4V, AVI, yt-dlp-supported HTTP(S) URLs, and live HLS/RTMP streams.
+- Live clipping: `chopify --live URL` watches a stream, scores audio, visual motion, transcript cues, and chat hype in real time, and automatically saves finished 9:16 captioned clips. Studio exposes this in the Live tab. Use the `--live-*` flags for buffer, pre-roll, tail, threshold, and cooldown.
 - Pipeline: source -> automatic short/long path -> faster-whisper timestamps -> text, local audio, and local visual evidence -> heuristic/local LLM/keyword/semantic selection -> review -> ffmpeg.
 - Selection: every clip scoring at least 8.0 is returned by default; clip length is engine-chosen from a duration ladder, with an optional soft preferred length.
 - Any-length sources: 2 hours, an 8 GB estimated download, or unknown duration selects the long path automatically. Long URLs download audio first (lowest-resolution video when there is no audio or no speech), transcribe in resumable 30-minute chunks, scan 30-minute blocks, and download only selected padded sections for rendering.
@@ -43,4 +45,4 @@
 - [License](https://github.com/mehbul/chopify/blob/main/LICENSE)
 - [Documentation website](https://mehbul.github.io/chopify/)
 
-Updated: 2026-11-05. This file is a factual navigation aid, not a search-engine requirement or ranking signal.
+Updated: 2026-11-19. This file is a factual navigation aid, not a search-engine requirement or ranking signal.

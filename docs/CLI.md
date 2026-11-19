@@ -15,9 +15,29 @@ commands and project layout.
 
 | Flag | Default | Accepted values and behavior | Example value |
 | --- | --- | --- | --- |
+| `--live` | none | Watch a live HLS/RTMP URL (or a live page URL resolved with yt-dlp) and auto-clip hype moments. Mutually exclusive with a source, `--batch`, and `--project`. | `"https://twitch.tv/channel"` |
 | `--workdir` | `work` | Intermediate files and single-video project directory. | `"work/podcast"` |
 | `--whisper-model` | `medium` | Model name passed to faster-whisper; common names are `tiny`, `base`, `small`, `medium`, and `large-v3`. | `small` |
 | `--device` | `cpu` | `cpu`, `cuda`, or `auto` for transcription. | `cuda` |
+
+## Live settings
+
+These options apply only with `--live`. See the [live clipping guide](LIVE.md)
+for signals, session files, and rights notes.
+
+| Flag | Default | Accepted values and behavior | Example value |
+| --- | --- | --- | --- |
+| `--live-buffer` | `300` | Rolling segment retention in seconds (60–3600). | `600` |
+| `--live-buffer-max-mb` | `512` | Buffer disk cap in megabytes (32–8192). | `1024` |
+| `--live-pre-roll` | `30` | Seconds saved before a trigger (5–300). | `45` |
+| `--live-tail` | `5` | Seconds saved after a trigger (0–60). | `10` |
+| `--live-window` | `10` | Scoring window in seconds (2–60). | `15` |
+| `--live-threshold` | `8.0` | Hype score needed to save a clip (0–10). | `7.5` |
+| `--live-cooldown` | `60` | Minimum seconds between clips (0–3600). | `120` |
+| `--live-max-clips` | `10` | Session clip cap, `0` for unlimited. | `20` |
+| `--live-no-chat` | off | Disable the chat signal. | (flag) |
+| `--live-no-transcript` | off | Disable the Whisper signal. | (flag) |
+| `--live-header` | none | Repeatable `Name: Value` ffmpeg header, e.g. a needed `Referer`. | `"Referer: https://example.com/"` |
 
 ## Scoring and discovery
 

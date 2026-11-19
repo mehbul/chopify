@@ -134,9 +134,14 @@ require a matching Origin. Never publish a running session's token.
 | POST | `/api/projects/ID/transcript` | `{ "words": [{ "word": "Hello", "start": 0, "end": 0.5 }] }` |
 | POST | `/api/projects/ID/candidates` | `{ "candidates": [{ "start": 0, "end": 20, "hook": "Title", "overall": 7 }] }` |
 | POST | `/api/projects/ID/run` | `{ "action": "render", "preview": true, "pick": "1,3" }`; queues job |
+| GET | `/api/live` | `{ "sessions": [session, ...] }` for live clipping sessions |
+| POST | `/api/live` | `{ "source": "https://twitch.tv/channel", "options": { "live_threshold": 8 } }`; starts a long-running live worker in the background |
+| GET | `/api/live/ID` | `{ "id": ..., "status": ..., "stream_time": ..., "recent_scores": [], "triggers": [], "errors": [] }` |
+| POST | `/api/live/ID/stop` | `{}`; stops the session |
 | POST | `/api/brands` | `{ "name": "channel", "preset": { "font": "Arial", "highlight": "#FFFF00", "animation": "pop" } }`; caption fields are optional |
 | GET | `/media/ID/source` | Full source video for a project with `playable_source: true`; byte-range support |
 | GET | `/media/ID/clips/FILE` | Project exports; `previews` also supported |
+| GET | `/media/live/ID/clips/FILE` | Exports from a live session; byte-range support |
 
 `GET /api/projects/ID` exposes `source_meta`, `selection`, `progress`,
 `render_errors`, and `playable_source`. `playable_source` is true only when a

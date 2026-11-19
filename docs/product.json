@@ -1,6 +1,6 @@
 {
   "name": "Chopify",
-  "description": "Free local video clipper with a browser dashboard, resumable batch projects, any-length ingest, audio/visual-aware clip selection, editable and styled captions, SRT, branding, semantic search, and podcast split-screen.",
+  "description": "Free local video clipper with a browser dashboard, resumable batch projects, any-length ingest, live HLS/RTMP clipping, audio/visual-aware clip selection, editable and styled captions, SRT, branding, semantic search, and podcast split-screen.",
   "repository": "https://github.com/mehbul/chopify",
   "website": "https://mehbul.github.io/chopify/",
   "license": "MIT",
@@ -8,7 +8,7 @@
   "interfaces": ["Python CLI", "local browser dashboard", "authenticated loopback HTTP API"],
   "requirements": ["Python >=3.11", "ffmpeg and ffprobe with libx264, AAC and libass", "yt-dlp", "faster-whisper", "opencv-python"],
   "platforms": {"primary": "Windows", "ci": ["Windows", "Linux"]},
-  "inputs": ["local MP4", "MOV", "MKV", "WebM", "M4V", "AVI", "yt-dlp-supported HTTP(S) URL"],
+  "inputs": ["local MP4", "MOV", "MKV", "WebM", "M4V", "AVI", "yt-dlp-supported HTTP(S) URL", "live HLS/RTMP URL"],
   "outputs": ["H.264 MP4", "AAC if source audio exists", "clip-relative SRT", "PNG poster", "metadata JSON"],
   "aspects": ["16:9", "9:16", "1:1"],
   "caption_presets": ["default", "clean", "minimal", "bold", "boxed", "karaoke", "pop", "neon", "typewriter", "retro", "hormozi", "mrbeast", "podcast"],
@@ -22,11 +22,11 @@
     "auto_emphasis": true,
     "precedence": ["named preset", "brand preset", "project override"]
   },
-  "capabilities": ["serial batch queue", "resumable projects", "automatic any-length ingest", "resumable 30-minute transcription chunks", "section-only long-URL rendering", "candidate review", "audio and visual evidence for speech-sparse or silent gameplay", "adaptive evidence weighting", "caption editing", "caption studio presets and word motion", "live caption preview", "automatic emphasis and emoji", "brand presets and logo", "keyword search", "optional local semantic search", "fixed two-panel podcast framing", "single-frame face tracking", "filler and silence removal"],
+  "capabilities": ["live HLS/RTMP clipping with four-signal hype detection", "serial batch queue", "resumable projects", "automatic any-length ingest", "resumable 30-minute transcription chunks", "section-only long-URL rendering", "candidate review", "audio and visual evidence for speech-sparse or silent gameplay", "adaptive evidence weighting", "caption editing", "caption studio presets and word motion", "live caption preview", "automatic emphasis and emoji", "brand presets and logo", "keyword search", "optional local semantic search", "fixed two-panel podcast framing", "single-frame face tracking", "filler and silence removal"],
   "selection": {"default_min_score": 8.0, "returns_all_passing_clips": true, "default_length_range_seconds": [15, 300], "preferred_length_is_soft": true, "evidence": ["text", "audio", "visual"]},
   "long_sources": {"automatic": true, "thresholds": {"duration_seconds": 7200, "estimated_size_bytes": 8589934592, "unknown_duration": true}, "chunk_seconds": 1800, "overlap_seconds": 30, "section_pad_seconds": 10, "section_merge_gap_seconds": 30, "section_cap_seconds": 600, "studio_preview": "480p preview rendered from a downloaded section"},
   "optional_models": {"semantic_search": {"provider": "local Ollama", "default_model": "nomic-embed-text", "endpoint": "http://127.0.0.1:11434/api/embed"}, "clip_selection": "local Ollama chat model"},
   "privacy": {"hosted_processing": false, "initial_model_downloads": true, "url_inputs_need_internet": true, "dashboard_binding": "127.0.0.1"},
   "not_included": ["social publishing", "scheduling", "cloud collaboration", "hosted processing", "translation", "bilingual captions", "dubbing", "speaker diarization", "guaranteed virality"],
-  "documentation_updated": "2026-11-05"
+  "documentation_updated": "2026-11-19"
 }

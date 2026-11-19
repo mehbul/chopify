@@ -59,7 +59,7 @@ test for any behavior change that can regress.
 Useful checks:
 
 ```bash
-python -m compileall -q chopify.py dashboard.py projects.py captions.py branding.py semantic.py download_and_transcribe.py score_clips.py render_clips.py tighten.py tools
+python -m compileall -q chopify.py dashboard.py projects.py captions.py branding.py semantic.py download_and_transcribe.py score_clips.py render_clips.py tighten.py live.py live_capture.py live_signals.py live_clips.py tools
 python tools/build_site.py --out _site
 ```
 
@@ -76,6 +76,8 @@ python tools/build_site.py --out _site
 | `score_clips.py` | Candidate discovery, evidence, selection |
 | `evidence.py` / `visual.py` | Local audio and visual evidence |
 | `render_clips.py` | ffmpeg render, captions, posters, metadata |
+| `live.py` / `live_capture.py` | Live session lifecycle and rolling HLS/RTMP segment buffer |
+| `live_signals.py` / `live_clips.py` | Live hype signals and trigger-to-clip rendering |
 | `captions.py` | Caption presets, ASS/SRT generation, transcript edits |
 | `branding.py` / `semantic.py` | Brand presets and local embeddings |
 | `assets/studio/` | Studio HTML, CSS, and JavaScript |
