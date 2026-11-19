@@ -49,6 +49,31 @@ def test_render_playable_with_subtitles_and_brand(source, tmp_path, layout, prev
         assert out.with_suffix(".meta.json").is_file()
 
 
+def test_stacked_layout_graph_and_seam_caption():
+    import render_clips
+    box, margin = render_clips.stacked_graph(
+        1920, 1080, 1080, 1920, 0.34, (0.0, 0.62, 0.26, 0.30))
+    assert "vstack=inputs=2" in box
+    assert "split=2" in box
+    assert "crop=498:324" in box
+    assert "crop=920:1080" in box
+    assert "scale=1080:652" in box
+    assert margin == 1256
+
+
+def test_stacked_layout_renders_real_video(source, tmp_path):
+    out = render_clips.render(
+        {"start": 0, "end": 2, "hook": "stacked"},
+        [{"word": "Hi", "start": 0.2, "end": 0.8}],
+        source, 640, 360, tmp_path, "9:16", out_dir=tmp_path / "stacked",
+        layout="stacked", facecam_box=[0.0, 0.6, 0.3, 0.35], preview=True)
+    meta = json.loads(subprocess.run(
+        ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(out)],
+        capture_output=True, text=True, check=True).stdout)
+    v = next(s for s in meta["streams"] if s["codec_type"] == "video")
+    assert (v["width"], v["height"]) == render_clips.PREVIEW["9:16"]
+
+
 def test_clamp_facecam_box():
     import render_clips
     assert render_clips.clamp_facecam_box([0.1, 0.6, 0.2, 0.3]) == (0.1, 0.6, 0.2, 0.3)
