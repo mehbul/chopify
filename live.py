@@ -28,8 +28,8 @@ def next_action(health):
 
 
 class LiveSession:
-    def __init__(self, source, options, root, brief_text=None):
-        self.id = uuid.uuid4().hex[:12]
+    def __init__(self, source, options, root, brief_text=None, session_id=None):
+        self.id = session_id or uuid.uuid4().hex[:12]
         self.source = source
         self.options = projects.validate_options(options)
         self.dir = Path(root) / "live" / self.id
@@ -156,6 +156,10 @@ class LiveSession:
     def _loop(self):
         probe = None
         while not self._stop.is_set():
+            if (self.dir / "stop").exists():
+                self._log("Stop requested by agent; shutting down.")
+                self.stop()
+                return
             time.sleep(1.0)
             self.stream_time = time.time() - self.buffer.started_at
             self.bus.prune(self.stream_time)
