@@ -15,6 +15,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plus an interactive builder for custom formats when detection is uncertain.
 - Studio detection banner, format selector and **Build new format** action.
 - Live sessions and the agent interface accept type/format options.
+- Fast local transcription with sherpa-onnx/Parakeet (port of PeakCut's ASR
+  engine): silence skipping, quiet-point chunking and parallel recognizers for
+  much faster prepares on CPU. Select with `--asr parakeet|whisper|auto`
+  (default `parakeet`); faster-whisper remains as an automatic fallback.
+- Long-source transcription now runs 30-minute parts in parallel through the
+  shared recognizer pool (`CHOPIFY_ASR_PARTS`), and `--asr none` skips speech
+  entirely for audio/visual-only scoring.
+- Transcript block scans run in parallel (`CHOPIFY_SCAN_WORKERS`), and the
+  long-URL discovery audio format is configurable (`CHOPIFY_DISCOVERY_AUDIO`).
+- Clip rendering now runs in parallel (`CHOPIFY_RENDER_WORKERS`). Every render
+  uses an isolated scratch directory so caption, track and tighten files cannot
+  collide; both the CLI and the project/Studio render path benefit.
+- Long-URL downloads use concurrent fragments (`CHOPIFY_YTDLP_FRAGMENTS`) and
+  render sections are fetched in parallel (`CHOPIFY_SECTION_WORKERS`), with
+  cache checks so retries only fetch what is missing.
 
 ### Fixed
 - Brief provider failures now name the specific agent and reason (for example,

@@ -150,6 +150,47 @@ CLI single-video runs save state under `work/` and copy the latest exports to `c
 
 Successful stages resume by default. Use `--no-resume` to reprocess, or `--project projects/<id> --action render` to retry a batch project. Use `--action render` after manual caption/clip edits; `--action prepare` recalculates candidates when selection inputs change. A failed batch job does not prevent later videos from processing; the CLI exits nonzero if any job fails.
 
+## Faster transcription (Parakeet)
+
+By default Chopify transcribes with a local [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)
+Parakeet model instead of a large Whisper model. It skips silent audio, cuts at
+quiet points, and runs several recognizers in parallel across CPU cores, which
+makes the **Find clips** step much faster. The technique comes from
+[PeakCut](https://github.com/haziqahmedqasmi/peakcut) (MIT licensed).
+
+The int8 speech model (~480 MB) downloads once on first use and is cached in
+`~/.chopify/models` (override with `CHOPIFY_MODELS_DIR`). Nothing is uploaded.
+If `sherpa-onnx` is not installed or the model cannot be fetched, Chopify prints
+a notice and falls back to faster-whisper automatically.
+
+```powershell
+python chopify.py "podcast.mp4" --asr parakeet   # default, fast local engine
+python chopify.py "podcast.mp4" --asr whisper    # original faster-whisper engine
+python chopify.py "podcast.mp4" --asr auto       # prefer Parakeet, fall back silently
+python chopify.py "game.mp4" --asr none          # skip speech entirely, score from audio/visual evidence
+```
+
+Long sources run their 30-minute parts **in parallel** (default: one per
+recognizer). Tune with `CHOPIFY_ASR_PARTS` (parallel parts),
+`CHOPIFY_ASR_THREADS` and `CHOPIFY_ASR_COPIES`. For a 7-hour gaming VOD that
+does not need spoken-word matching, `--asr none` removes transcription from the
+critical path altogether and lets audio peaks and visual activity pick the
+clips. Switching the engine invalidates the cached transcript on the next
+prepare, so it is safe to compare engines on the same project.
+
+Other speed knobs:
+- `CHOPIFY_YTDLP_FRAGMENTS` — fetch HLS/DASH fragments concurrently (default 4).
+- `CHOPIFY_SECTION_WORKERS` — download the render sections in parallel (default 4).
+- `CHOPIFY_RENDER_WORKERS` — render several clips at once (default 4). Each
+  clip gets its own scratch directory, so captions, track files and tightened
+  sources never collide.
+- `CHOPIFY_SCAN_WORKERS` — parallel transcript block scans (default 4; set to
+  1 to disable).
+- `CHOPIFY_DISCOVERY_AUDIO` — yt-dlp audio format for long URLs. Discovery only
+  needs 16 kHz audio; `worstaudio/best` downloads much faster than the default
+  `bestaudio/best` for a 7-hour source. Set it to trade a little audio detail
+  for a much shorter download.
+
 ## How clips are chosen
 
 Chopify evaluates every sentence as a possible start, builds overlapping

@@ -22,6 +22,7 @@ import re
 import json
 import argparse
 import subprocess
+import shutil
 import math
 from pathlib import Path
 
@@ -326,10 +327,10 @@ def _make_detector(workdir):
         cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
 
-def detect_track(source, start, dur, W, workdir):
+def detect_track(source, start, dur, W, workdir, det_dir=None):
     """Low-res detection pass -> [(t_rel, center_x_source_px or None)]."""
     import cv2
-    det_path = Path(workdir) / "_det.mp4"
+    det_path = Path(det_dir or workdir) / "_det.mp4"
     subprocess.run(
         ["ffmpeg", "-y", "-ss", f"{start:.3f}", "-i", str(source),
          "-t", f"{dur:.3f}", "-vf", f"fps={DET_FPS},scale={DET_W}:-2",
@@ -601,6 +602,10 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
     from captions import write_srt
     out_dir = (Path(out_dir) if out_dir else default_out()).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Per-clip scratch space: parallel renders must not share _caption.ass,
+    # _crop.cmd, _det.mp4 or the tightened source.
+    work = out_dir / f".work-{sanitize(str(seg.get('id') or 'clip'))}"
+    work.mkdir(parents=True, exist_ok=True)
     source = Path(source).resolve()
     resolved = resolve_caption(style, brand, caption)
     if fit not in {"cover", "contain"}:
@@ -638,7 +643,7 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
     render_src = source
     if do_tighten:
         keeps = tighten.plan_cuts(words, start, end)
-        render_src = out_dir / "_tight_source.mp4"
+        render_src = work / "_tight_source.mp4"
         tighten.apply_cuts(source, keeps, start, render_src,
                            source_offset=offset)
         cap_words, dur = tighten.remap_words(words, start, keeps)
@@ -647,16 +652,17 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
         start = 0.0
         local_start = 0.0
     if layout == "stacked":
-        box, warning = resolve_facecam_box(source, W, H, workdir, facecam_box)
+        box, warning = resolve_facecam_box(source, W, H, workdir, facecam_box,
+                                           tmp_dir=work)
         if warning:
             print(f"  {warning}", flush=True)
         vf, seam_margin = stacked_graph(W, H, tw, th, facecam_height, box)
         caption_override = dict(caption or {})
         caption_override["margin"] = None
-        build_ass(cap_words, start, start + dur, out_dir / "_caption.ass",
+        build_ass(cap_words, start, start + dur, work / "_caption.ass",
                   tw, th, font_size, seam_margin, style, brand, caption_override)
     else:
-        build_ass(cap_words, start, start + dur, out_dir / "_caption.ass",
+        build_ass(cap_words, start, start + dur, work / "_caption.ass",
                   tw, th, font_size, margin_v, style, brand, caption)
 
     needs_track = cw < W * 0.95          # real horizontal crop -> track the speaker
@@ -679,8 +685,9 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
               f"pad={tw}:{th}:0:0,subtitles=_caption.ass")
         mode = "podcast split-screen"
     elif needs_track:
-        track = smooth_track(detect_track(render_src, local_start, dur, W, workdir), W, cw)
-        build_sendcmd(track, cw, out_dir / "_crop.cmd")
+        track = smooth_track(detect_track(render_src, local_start, dur, W, workdir,
+                                          det_dir=work), W, cw)
+        build_sendcmd(track, cw, work / "_crop.cmd")
         init_x = max(0, min(int(round(track[0][1] - cw / 2.0)), W - cw))
         vf = (f"sendcmd=f=_crop.cmd,crop={cw}:{ch}:{init_x}:{y0},"
               f"scale={tw}:{th},subtitles=_caption.ass")
@@ -723,15 +730,11 @@ def render(seg, words, source, W, H, workdir, aspect, out_dir=None, style=DEFAUL
         cmd[cmd.index("-c:v"):cmd.index("-c:v")] = [
             "-af", "loudnorm=I=-14:TP=-1.5:LRA=11"]
     print(">", " ".join(cmd), flush=True)
-    subprocess.run(cmd, check=True, cwd=str(out_dir))
+    subprocess.run(cmd, check=True, cwd=str(work))
     write_srt(cap_words, start, start + dur, out.with_suffix(".srt"),
               group_size=resolved["words_per_cue"])
 
-    for tmpf in (out_dir / "_caption.ass", out_dir / "_crop.cmd"):
-        try:
-            tmpf.unlink()
-        except OSError:
-            pass
+    shutil.rmtree(work, ignore_errors=True)
 
     if do_tighten:
         try:
@@ -802,22 +805,42 @@ def main():
     print(f"Source {source} {W}x{H}; {len(segments)} clips -> {args.aspect} "
           f"(style={args.style}, tighten={args.tighten}) -> {out_dir}", flush=True)
 
-    saved = []
-    failed = 0
-    for i, seg in enumerate(segments, 1):
+    def render_one(i, seg):
         print(f"--- Clip {i}/{len(segments)}: "
               f"{seg.get('hook', '')[:60]!r} (overall {seg.get('overall')}) ---",
               flush=True)
         try:
-            saved.append(str(render({**seg, "id": f"{i:03}"}, words, source, W, H, workdir, args.aspect,
-                                    out_dir=out_dir, style=args.style,
-                                    do_tighten=args.tighten, loudnorm=args.loudnorm,
-                                    preview=args.preview, brand=brand,
-                                    layout=args.layout, centers=args.centers,
-                                    caption=caption)))
-        except subprocess.CalledProcessError as e:
-            print(f"ERROR rendering clip {i}: {e}", flush=True)
-            failed += 1
+            path = render({**seg, "id": f"{i:03}"}, words, source, W, H,
+                          workdir, args.aspect, out_dir=out_dir, style=args.style,
+                          do_tighten=args.tighten, loudnorm=args.loudnorm,
+                          preview=args.preview, brand=brand,
+                          layout=args.layout, centers=args.centers,
+                          caption=caption)
+            return str(path), None
+        except Exception as exc:
+            print(f"ERROR rendering clip {i}: {exc}", flush=True)
+            return None, exc
+
+    try:
+        workers = max(1, int(os.environ.get("CHOPIFY_RENDER_WORKERS")
+                             or min(4, os.cpu_count() or 2)))
+    except ValueError:
+        workers = 1
+    if args.aspect != "16:9" or args.layout == "stacked":
+        try:
+            _make_detector(workdir)   # pre-download a shared detector once
+        except Exception:
+            pass
+    if workers > 1 and len(segments) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=workers,
+                                thread_name_prefix="chopify-render") as pool:
+            results = list(pool.map(
+                lambda pair: render_one(*pair), enumerate(segments, 1)))
+    else:
+        results = [render_one(i, seg) for i, seg in enumerate(segments, 1)]
+    saved = [path for path, _ in results if path]
+    failed = sum(1 for _, error in results if error is not None)
 
     print("RENDERED", len(saved), "clips:", flush=True)
     for s in saved:
@@ -880,14 +903,14 @@ def _detect_facecam_box(frame_path, W, H, workdir, detector=None):
     return clamp_facecam_box((x / iw, y / ih, w / iw, h / ih)), None
 
 
-def resolve_facecam_box(source, W, H, workdir, box, detector=None):
+def resolve_facecam_box(source, W, H, workdir, box, detector=None, tmp_dir=None):
     """Return (normalized box, warning). Explicit box wins; detection is best-effort."""
     if box is not None:
         return clamp_facecam_box(box), None
     if source is None:
         return DEFAULT_FACECAM_BOX, "No source for facecam detection; using default box."
     try:
-        frame_path = Path(workdir) / "_facecam.jpg"
+        frame_path = Path(tmp_dir or workdir) / "_facecam.jpg"
         subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", "0.5",
                         "-i", str(source), "-frames:v", "1", str(frame_path)],
                        check=True, capture_output=True)

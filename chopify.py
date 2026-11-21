@@ -331,6 +331,9 @@ def main():
                     help="print score parts and reasons")
     ap.add_argument("--whisper-model", default="medium",
                     help="faster-whisper size: tiny/base/small/medium/large-v3")
+    ap.add_argument("--asr", choices=["parakeet", "whisper", "auto", "none"],
+                    default="parakeet",
+                    help="speech engine: fast local Parakeet (default) or faster-whisper")
     ap.add_argument("--no-preflight", action="store_true",
                     help="skip the environment check (ffmpeg, packages, ...)")
     ap.add_argument("--project", help="resume an existing project directory")

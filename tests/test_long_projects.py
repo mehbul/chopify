@@ -121,6 +121,7 @@ def test_long_url_audio_without_speech_switches_to_visual_discovery(
     assert state["cache"]["transcript"] == projects.digest([
         projects.dt.TRANSCRIPT_VERSION, projects.file_identity(visual),
         state["options"]["whisper_model"], state["options"]["device"],
+        state["options"].get("asr", "parakeet"),
         True, "video", True, source])
 
 

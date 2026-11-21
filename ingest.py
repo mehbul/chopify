@@ -19,6 +19,19 @@ VIDEO_EXTS = {".mp4", ".mkv", ".webm", ".mov", ".m4v", ".avi"}
 MIN_FREE_BYTES = 500 * 1024**2
 SECTION_TIMEOUT = 180
 FULL_TIMEOUT = 60 * 60
+# Discovery only needs enough audio for 1 Hz loudness/flux (and 16 kHz speech).
+# A smaller format downloads much faster for long videos. Override if needed.
+DISCOVERY_AUDIO = os.environ.get("CHOPIFY_DISCOVERY_AUDIO", "bestaudio/best")
+# HLS/DASH downloads are split into fragments; fetching several at once is the
+# single biggest download-speed lever for long streams.
+FRAGMENTS = int(os.environ.get("CHOPIFY_YTDLP_FRAGMENTS", "4") or 0)
+
+
+def _ytdlp():
+    cmd = [sys.executable, "-m", "yt_dlp"]
+    if FRAGMENTS > 1:
+        cmd += ["--concurrent-fragments", str(FRAGMENTS)]
+    return cmd
 
 
 class SectionDownloadTimeout(RuntimeError):
@@ -242,8 +255,7 @@ def download_visual_discovery(url, workdir, runner=None):
     workdir.mkdir(parents=True, exist_ok=True)
     _remove_old(workdir, "discovery")
     try:
-        run([
-            sys.executable, "-m", "yt_dlp",
+        run([*_ytdlp(),
             "-f", "worst[height<=360]/worst", "--no-playlist",
             "-o", str(workdir / "discovery.%(ext)s"), url])
     except (OSError, subprocess.SubprocessError) as exc:
@@ -266,9 +278,8 @@ def download_discovery(url, workdir, meta=None, runner=None):
 
     if meta.get("has_audio") is not False:
         try:
-            run([
-                sys.executable, "-m", "yt_dlp", "-f", "bestaudio/best",
-                "--no-playlist", "-o", str(workdir / "audio.%(ext)s"), url])
+            run([*_ytdlp(), "-f", DISCOVERY_AUDIO,
+                 "--no-playlist", "-o", str(workdir / "audio.%(ext)s"), url])
         except (OSError, subprocess.SubprocessError):
             pass
         audio = _find_media(workdir, "audio")
@@ -281,7 +292,7 @@ def download_discovery(url, workdir, meta=None, runner=None):
 def _download(url, out_path, fmt, runner=None, timeout=None, extra=()):
     """Run one yt-dlp download, converting a timeout into a clear error."""
     run = runner or _run
-    cmd = [sys.executable, "-m", "yt_dlp", "-f", fmt,
+    cmd = [*_ytdlp(), "-f", fmt,
            "--merge-output-format", "mp4", "--no-playlist",
            "--force-overwrites", *extra, "-o", str(out_path), url]
     try:

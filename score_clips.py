@@ -22,6 +22,7 @@ No paid APIs, no API keys. Usage:
     python score_clips.py work --llm qwen2.5:7b
     python score_clips.py work --min-score 8.0 --preferred-len 45s
 """
+import os
 import re
 import math
 import json
@@ -769,6 +770,18 @@ def _block_part_matches(part, scan_key, index, start, end):
     return isinstance(part.get("candidates"), list)
 
 
+def _scan_block_chunk(args):
+    """Picklable worker: scan one block's sentence slice in another process."""
+    subset, first, owned_count, min_len, max_len, preferred_len, band = args
+    local, part_stats = discover_candidates(
+        subset, min_len, max_len, preferred_len=preferred_len, band=band,
+        seed_indices=list(range(owned_count)))
+    for item in local:
+        if item.get("seed_index") is not None:
+            item["seed_index"] += first
+    return local, part_stats
+
+
 def discover_blocks(sentences, min_len, max_len, preferred_len=None,
                     band=(30, 120), duration=None, workdir=None,
                     progress=None):
@@ -799,10 +812,9 @@ def discover_blocks(sentences, min_len, max_len, preferred_len=None,
         bounds.append((len(bounds), position, block_end))
         position = block_end
 
-    candidates = []
-    seeds = 0
-    windows_scanned = 0
-    for done, (index, block_start, block_end) in enumerate(bounds, 1):
+    ready = []          # (index, part) already cached and valid
+    jobs = []           # (worker_args, (index, block_start, block_end, part_path))
+    for index, block_start, block_end in bounds:
         part_path = (Path(workdir) / f"candidates.part{index:03d}.json"
                      if workdir else None)
         part = None
@@ -811,25 +823,48 @@ def discover_blocks(sentences, min_len, max_len, preferred_len=None,
                 part = json.loads(part_path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 part = None
-        if not _block_part_matches(part, scan_key, index,
-                                   block_start, block_end):
-            first = bisect.bisect_left(starts, block_start)
-            owned_end = bisect.bisect_left(starts, block_end)
-            context_end = bisect.bisect_left(starts, block_end + max_len)
-            owned_count = max(0, owned_end - first)
-            local, part_stats = discover_candidates(
-                sentences[first:context_end], min_len, max_len,
-                preferred_len=preferred_len, band=band,
-                seed_indices=list(range(owned_count)))
-            for item in local:
-                if item.get("seed_index") is not None:
-                    item["seed_index"] += first
+        if _block_part_matches(part, scan_key, index, block_start, block_end):
+            ready.append((index, part))
+            continue
+        first = bisect.bisect_left(starts, block_start)
+        owned_end = bisect.bisect_left(starts, block_end)
+        context_end = bisect.bisect_left(starts, block_end + max_len)
+        owned_count = max(0, owned_end - first)
+        args = (sentences[first:context_end], first, owned_count,
+                min_len, max_len, preferred_len, band)
+        jobs.append((args, (index, block_start, block_end, part_path)))
+
+    if jobs:
+        try:
+            workers = max(1, int(os.environ.get("CHOPIFY_SCAN_WORKERS")
+                                 or min(4, os.cpu_count() or 2)))
+        except ValueError:
+            workers = 1
+        if workers > 1 and len(jobs) > 1:
+            try:
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    results = list(pool.map(_scan_block_chunk,
+                                            [args for args, _ in jobs]))
+            except Exception:  # spawn unavailable: still produce correct results
+                results = [_scan_block_chunk(args) for args, _ in jobs]
+        else:
+            results = [_scan_block_chunk(args) for args, _ in jobs]
+        for (local, part_stats), (index, block_start, block_end, part_path) in zip(
+                results, [meta for _, meta in jobs]):
             part = {"version": BLOCK_VERSION, "scan_key": scan_key,
                     "index": index, "start": block_start,
                     "end": block_end, "candidates": local,
                     "stats": part_stats}
             if part_path is not None:
                 _write_json(part_path, part)
+            ready.append((index, part))
+
+    ready.sort(key=lambda item: item[0])
+    candidates = []
+    seeds = 0
+    windows_scanned = 0
+    for done, (index, part) in enumerate(ready, 1):
         candidates.extend(part["candidates"])
         part_stats = part.get("stats") or {}
         seeds += int(part_stats.get("seeds") or 0)

@@ -1,6 +1,8 @@
 """Exercise retry and cache behavior at the real project/render boundary."""
 import json
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -46,9 +48,31 @@ def test_failed_job_retains_successful_clips_for_retry(tmp_path, monkeypatch):
         return fake_render(segment, *args, **kwargs)
     monkeypatch.setattr(projects.render_clips, "render", succeed)
     state = projects.run_project(path, action="render")
-    assert calls == [0, 6, 6]
+    assert sorted(calls) == [0, 6, 6]
     assert state["status"] == "complete"
     assert len(set(state["last_outputs"])) == 2
+
+
+def test_clips_render_in_parallel(tmp_path, monkeypatch):
+    path = ready_project(tmp_path)
+    monkeypatch.setenv("CHOPIFY_RENDER_WORKERS", "2")
+    monkeypatch.setattr(projects.render_clips, "ffprobe_dims", lambda p: (640, 360))
+    lock = threading.Lock()
+    state = {"active": 0, "peak": 0}
+
+    def slow_render(segment, *args, **kwargs):
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.05)
+        with lock:
+            state["active"] -= 1
+        return fake_render(segment, *args, **kwargs)
+
+    monkeypatch.setattr(projects.render_clips, "render", slow_render)
+    result = projects.run_project(path, action="render")
+    assert state["peak"] == 2
+    assert len(result["last_outputs"]) == 2
 
 
 def test_style_variants_never_overwrite_cached_outputs(tmp_path, monkeypatch):
@@ -126,6 +150,35 @@ def test_long_project_renders_from_section_offsets(tmp_path, monkeypatch):
     assert state["render_errors"] == []
     assert state["status"] == "complete"
     assert not section.exists()
+
+
+def test_sections_fetch_in_parallel(tmp_path, monkeypatch):
+    path = ready_long_project(tmp_path, segments=[
+        {"start": 100, "end": 140, "hook": "one", "overall": 9},
+        {"start": 400, "end": 440, "hook": "two", "overall": 9}])
+    monkeypatch.setenv("CHOPIFY_SECTION_WORKERS", "2")
+    lock = threading.Lock()
+    state = {"active": 0, "peak": 0}
+
+    def fetch(url, workdir, index, start, end):
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.05)
+        target = Path(workdir) / "sections" / f"section{index:03d}.mp4"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"section")
+        with lock:
+            state["active"] -= 1
+        return target
+
+    monkeypatch.setattr(projects.sections, "ensure_section", fetch)
+    monkeypatch.setattr(projects.render_clips, "ffprobe_dims",
+                        lambda p: (640, 360))
+    monkeypatch.setattr(projects.render_clips, "render", fake_section_render)
+    result = projects.run_project(path, action="render")
+    assert state["peak"] == 2
+    assert len(result["last_outputs"]) == 2
 
 
 def test_section_stall_falls_back_to_full_source(tmp_path, monkeypatch):

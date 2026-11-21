@@ -157,6 +157,24 @@ def test_download_section_uses_accurate_cut_flags(monkeypatch, tmp_path):
     assert "bestvideo[height<=720]+bestaudio/best[height<=720]" in captured[0]
 
 
+def test_downloads_use_concurrent_fragments(monkeypatch, tmp_path):
+    monkeypatch.setattr(ingest, "FRAGMENTS", 8)
+    captured = []
+
+    def run(cmd, **kwargs):
+        captured.append(cmd)
+        out = Path(cmd[cmd.index("-o") + 1])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"section")
+        return FakeResult()
+
+    monkeypatch.setattr(ingest, "_run", run)
+    out = tmp_path / "sections" / "section001.mp4"
+    ingest.download_section("https://example.com/v", 100, 160, out, quality=720)
+    assert "--concurrent-fragments" in captured[0]
+    assert captured[0][captured[0].index("--concurrent-fragments") + 1] == "8"
+
+
 def test_download_section_timeout_is_bounded(monkeypatch, tmp_path):
     def run(cmd, **kwargs):
         raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))

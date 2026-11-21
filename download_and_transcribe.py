@@ -2,10 +2,11 @@
 Stage 1 of the viral-clip pipeline.
 
 Downloads a YouTube video at highest quality with yt-dlp, then transcribes it
-locally with faster-whisper (word-level timestamps). Writes work/transcript.json.
+locally with sherpa-onnx/Parakeet (default) or faster-whisper (word-level
+timestamps). Writes work/transcript.json.
 
-No external/paid APIs. CPU-friendly (int8). Usage:
-    python download_and_transcribe.py <youtube_url> --model small
+No external/paid APIs. CPU-friendly. Usage:
+    python download_and_transcribe.py <youtube_url> --asr parakeet
 """
 import sys
 import json
@@ -14,6 +15,7 @@ import os
 import subprocess
 import tempfile
 import shutil
+import threading
 from urllib.parse import urlparse
 from pathlib import Path
 
@@ -68,28 +70,93 @@ def _download(url, workdir):
     return vids[0].resolve()
 
 
+def _use_fast_asr(asr_backend):
+    """Use the sherpa-onnx/Parakeet backend when asked and available."""
+    if asr_backend not in ("parakeet", "auto"):
+        return False
+    try:
+        import fast_asr
+        return fast_asr.available()
+    except Exception:
+        return False
+
+
+def _fast_transcribe_media(video, offset=0.0, wav=None, max_workers=None):
+    """Transcribe with Parakeet. `wav` may be a pre-extracted 16 kHz mono file."""
+    import fast_asr
+    pre_extracted = wav is not None
+    temporary = None
+    if wav is None:
+        temporary = Path(tempfile.mkdtemp(prefix="chopify-asr-")) / "audio.wav"
+        subprocess.run([
+            "ffmpeg", "-v", "error", "-y", "-i", str(video),
+            "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+            str(temporary)], check=True)
+        wav = temporary
+    try:
+        result = fast_asr.transcribe(wav, max_workers=max_workers)
+    finally:
+        if temporary is not None:
+            shutil.rmtree(temporary.parent, ignore_errors=True)
+    words = [{"word": w["word"], "start": round(w["start"] + offset, 2),
+              "end": round(w["end"] + offset, 2)} for w in result["words"]]
+    seg_list = [{"start": round(s["start"] + offset, 2),
+                 "end": round(s["end"] + offset, 2), "text": s["text"]}
+                for s in result["segments"]]
+    if words:
+        info_duration = max(w["end"] for w in words)
+    elif not pre_extracted:
+        try:
+            info_duration = _probe_duration(video)
+        except (OSError, ValueError):
+            info_duration = 0.0
+    else:
+        info_duration = 0.0
+    return seg_list, words, result["language"], info_duration
+
+
 def transcribe(video, workdir, model_size, device, compute_type, duration=None,
                chunked=False, source=None, media_kind="video",
                render_from_sections=False, identity=None, progress=None,
-               resume=True):
+               resume=True, asr_backend="whisper"):
     """Transcribe a short source in one pass or a long source in chunks."""
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
+    if asr_backend == "none":
+        if duration is None:
+            try:
+                duration = _probe_duration(video)
+            except (OSError, ValueError):
+                duration = 0.0
+        return write_media_transcript(
+            video, workdir, duration, source=source, media_kind=media_kind,
+            render_from_sections=render_from_sections, identity=identity)
     if chunked:
         return transcribe_chunked(
             video, workdir, model_size, device, compute_type, duration,
             source=source, media_kind=media_kind,
             render_from_sections=render_from_sections, identity=identity,
-            progress=progress, resume=resume)
+            progress=progress, resume=resume, asr_backend=asr_backend)
 
-    model = _load_model(model_size, device, compute_type)
-    seg_list, words, language, info_duration = _transcribe_media(model, video)
+    fast = _use_fast_asr(asr_backend)
+    if fast:
+        print("Transcribing with Parakeet (sherpa-onnx, CPU).", flush=True)
+        seg_list, words, language, info_duration = _fast_transcribe_media(video)
+        model_label = "parakeet"
+    else:
+        if asr_backend == "parakeet":
+            print("sherpa-onnx unavailable; falling back to faster-whisper. "
+                  "Install it with: pip install -r requirements.txt", flush=True)
+        model = _load_model(model_size, device, compute_type)
+        seg_list, words, language, info_duration = _transcribe_media(model, video)
+        model_label = model_size
     total = float(duration) if duration is not None else float(info_duration)
     transcript = {
         "video": str(video),
         "language": language,
         "duration": total,
-        "model": model_size,
+        "asr": "parakeet" if fast else "faster-whisper",
+        "model": model_label,
         "segments": seg_list,
         "words": words,
         "transcript_version": TRANSCRIPT_VERSION,
@@ -240,7 +307,7 @@ def _dedupe(items, key):
 def transcribe_chunked(video, workdir, model_size, device, compute_type,
                        duration=None, source=None, media_kind="video",
                        render_from_sections=False, identity=None,
-                       progress=None, resume=True):
+                       progress=None, resume=True, asr_backend="whisper"):
     """Transcribe a long source in 30-minute parts with overlap."""
     workdir = Path(workdir)
     workdir.mkdir(parents=True, exist_ok=True)
@@ -249,6 +316,10 @@ def transcribe_chunked(video, workdir, model_size, device, compute_type,
     if total <= 0:
         raise ValueError("Cannot transcribe an empty source.")
     identity = str(identity or "")
+    if asr_backend == "none":
+        return write_media_transcript(
+            video, workdir, total, source=source, media_kind=media_kind,
+            render_from_sections=render_from_sections, identity=identity)
 
     bounds = []
     index = 0
@@ -259,20 +330,35 @@ def transcribe_chunked(video, workdir, model_size, device, compute_type,
         bounds.append((index, float(start), float(end)))
         index += 1
 
+    fast = _use_fast_asr(asr_backend)
+    if fast:
+        print("Transcribing with Parakeet (sherpa-onnx, CPU).", flush=True)
+    elif asr_backend == "parakeet":
+        print("sherpa-onnx unavailable; falling back to faster-whisper. "
+              "Install it with: pip install -r requirements.txt", flush=True)
     model = None
-    parts = []
     part_dir = workdir / "audio_parts"
     part_dir.mkdir(parents=True, exist_ok=True)
-    for done, (index, start, end) in enumerate(bounds, 1):
-        part_path = workdir / (f"transcript.part{index:03d}.json")
-        part = _read_part(part_path) if resume else None
-        if not _part_matches(part, index, start, end, identity):
-            if model is None:
-                model = _load_model(model_size, device, compute_type)
+    progress_lock = threading.Lock()
+    completed = [0]
+    total_parts = len(bounds)
+
+    def cached_part(index, start, end):
+        part = (_read_part(workdir / f"transcript.part{index:03d}.json")
+                if resume else None)
+        return part if _part_matches(part, index, start, end, identity) else None
+
+    def process_part(index, start, end):
+        part = cached_part(index, start, end)
+        if part is None:
             wav = part_dir / f"part{index:03d}.wav"
             _extract_chunk(source_path, start, end, wav)
-            seg_list, words, language, _ = _transcribe_media(
-                model, wav, offset=start)
+            if fast:
+                seg_list, words, language, _ = _fast_transcribe_media(
+                    source_path, offset=start, wav=wav, max_workers=1)
+            else:
+                seg_list, words, language, _ = _transcribe_media(
+                    model, wav, offset=start)
             part = {
                 "version": TRANSCRIPT_VERSION,
                 "index": index,
@@ -283,21 +369,41 @@ def transcribe_chunked(video, workdir, model_size, device, compute_type,
                 "segments": seg_list,
                 "words": words,
             }
-            _atomic_json(part_path, part)
+            _atomic_json(workdir / f"transcript.part{index:03d}.json", part)
             try:
                 wav.unlink()
             except OSError:
                 pass
-        parts.append(part)
-        if progress:
-            progress(done, len(bounds))
+        with progress_lock:
+            completed[0] += 1
+            if progress:
+                progress(completed[0], total_parts)
+        return part
+
+    if not fast and any(cached_part(*b) is None for b in bounds):
+        model = _load_model(model_size, device, compute_type)
+
+    if fast:
+        import fast_asr
+        parallel = max(1, int(os.environ.get("CHOPIFY_ASR_PARTS")
+                              or fast_asr.COPIES))
+        if parallel > 1 and total_parts > 1:
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=parallel,
+                                    thread_name_prefix="chopify-parts") as pool:
+                parts = list(pool.map(lambda b: process_part(*b), bounds))
+        else:
+            parts = [process_part(*b) for b in bounds]
+    else:
+        parts = [process_part(*b) for b in bounds]
 
     merged = merge_transcript_parts(parts, total, overlap=OVERLAP_SECONDS)
     transcript = {
         "video": str(video),
         "language": merged["language"],
         "duration": total,
-        "model": model_size,
+        "asr": "parakeet" if fast else "faster-whisper",
+        "model": "parakeet" if fast else model_size,
         "segments": merged["segments"],
         "words": merged["words"],
         "transcript_version": TRANSCRIPT_VERSION,
@@ -328,6 +434,7 @@ def write_media_transcript(video, workdir, duration, source=None,
         "video": str(video),
         "language": language,
         "duration": total,
+        "asr": "none",
         "model": None,
         "segments": [],
         "words": [],
@@ -354,6 +461,8 @@ def main():
                     help="faster-whisper model: tiny/base/small/medium/large-v3")
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--compute-type", default="int8")
+    ap.add_argument("--asr", choices=["parakeet", "whisper", "auto", "none"],
+                    default="parakeet", help="speech engine (default: parakeet)")
     args = ap.parse_args()
 
     workdir = Path(args.workdir)
@@ -361,7 +470,8 @@ def main():
 
     video = resolve_source(args.url, workdir)
     print("Downloaded:", video, flush=True)
-    transcribe(video, workdir, args.model, args.device, args.compute_type)
+    transcribe(video, workdir, args.model, args.device, args.compute_type,
+               asr_backend=args.asr)
     print("STAGE 1 COMPLETE", flush=True)
 
 

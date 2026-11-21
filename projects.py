@@ -2,6 +2,7 @@
 import hashlib
 import json
 import math
+import os
 import re
 import time
 import uuid
@@ -27,6 +28,7 @@ LIVE_DEFAULTS = {
 
 DEFAULT_OPTIONS = {"aspect": "16:9", "fit": "cover", "style": "default", "tighten": False,
                    "loudnorm": False, "whisper_model": "medium", "device": "cpu",
+                   "asr": "parakeet",
                    "min_len": 15, "max_len": 300, "max_clips": None,
                    "min_score": 8.0, "preferred_len": None,
                    "llm": None, "search": None, "semantic": None,
@@ -376,7 +378,8 @@ def run_project(path, action="all", preview=False, pick=None, resume=True,
             stage("transcribe")
             transcript_key = digest([
                 dt.TRANSCRIPT_VERSION, file_identity(source),
-                options["whisper_model"], options["device"], bool(long),
+                options["whisper_model"], options["device"],
+                options.get("asr", "parakeet"), bool(long),
                 media_kind, bool(render_from_sections), source_input])
             transcript_path = path / "transcript.json"
             if (not resume or state["cache"].get("transcript") != transcript_key
@@ -410,7 +413,8 @@ def run_project(path, action="all", preview=False, pick=None, resume=True,
                         media_kind=media_kind,
                         render_from_sections=render_from_sections,
                         identity=source_identity,
-                        progress=transcribe_progress)
+                        progress=transcribe_progress,
+                        asr_backend=options.get("asr", "parakeet"))
                     if (is_url and long and media_kind == "audio"
                             and not read_json(transcript_path).get("words")):
                         visual = ingest.download_visual_discovery(
@@ -430,6 +434,7 @@ def run_project(path, action="all", preview=False, pick=None, resume=True,
                         transcript_key = digest([
                             dt.TRANSCRIPT_VERSION, source_identity,
                             options["whisper_model"], options["device"],
+                            options.get("asr", "parakeet"),
                             bool(long), media_kind,
                             bool(render_from_sections), source_input])
                         print("No speech; switching discovery to the "
@@ -534,82 +539,145 @@ def run_project(path, action="all", preview=False, pick=None, resume=True,
             failed_sections = {}
             render_errors = []
             state["render_errors"] = render_errors
-            outputs = []
+            outputs = [None] * len(segments)
+            tasks = []
+
+            def clip_key(segment, src, offset, skey):
+                return digest([segment, data["words"], file_identity(src),
+                               options, brand, logo_identity, preview,
+                               offset, skey])
+
+            planned = []
             for i, segment in enumerate(segments, 1):
+                offset, skey = 0.0, None
+                if render_from_sections:
+                    _, group = section_plan[i - 1]
+                    offset = float(group["start"])
+                    skey = digest([section_source, group["start"],
+                                   group["end"], sections.SECTION_VERSION])
+                key = clip_key(segment, source, offset, skey)
+                cached = state["renders"].get(key)
+                expected_suffixes = ([".mp4", ".srt"] if preview
+                                     else [".mp4", ".srt", ".png", ".meta.json"])
+                if resume and cached and all(
+                        Path(cached).with_suffix(ext).is_file()
+                        for ext in expected_suffixes):
+                    outputs[i - 1] = cached
+                planned.append((i, segment, key, offset, skey))
+
+            if render_from_sections:
+                needed = {}
+                for i, segment, key, offset, skey in planned:
+                    if outputs[i - 1] is None:
+                        group_index, group = section_plan[i - 1]
+                        needed.setdefault(group_index, (group_index, group))
+
+                def fetch_section(item):
+                    group_index, group = item
+                    try:
+                        src = sections.ensure_section(
+                            section_source, path, group_index,
+                            group["start"], group["end"])
+                        return group_index, src, render_clips.ffprobe_dims(src), None, None
+                    except ingest.SectionDownloadTimeout as exc:
+                        return group_index, None, None, "timeout", exc
+                    except (Exception, SystemExit) as exc:
+                        return group_index, None, None, "error", exc
+
+                try:
+                    section_workers = max(1, int(
+                        os.environ.get("CHOPIFY_SECTION_WORKERS")
+                        or min(4, os.cpu_count() or 2)))
+                except ValueError:
+                    section_workers = 1
+                items = list(needed.values())
+                if section_workers > 1 and len(items) > 1:
+                    from concurrent.futures import ThreadPoolExecutor
+                    with ThreadPoolExecutor(
+                            max_workers=section_workers,
+                            thread_name_prefix="chopify-sections") as pool:
+                        fetched = list(pool.map(fetch_section, items))
+                else:
+                    fetched = [fetch_section(item) for item in items]
+                stalled = False
+                for group_index, src, dims, kind, exc in fetched:
+                    if kind is None:
+                        loaded_sections[group_index] = (src, dims[0], dims[1])
+                    elif kind == "timeout":
+                        stalled = True
+                    else:
+                        failed_sections[group_index] = str(exc)
+                if stalled:
+                    print("Section download stalled; downloading the full "
+                          "source once and rendering from it instead.", flush=True)
+                    source = sections.ensure_full_source(section_source, path)
+                    render_from_sections = False
+                    W, H = render_clips.ffprobe_dims(source)
+                    planned = [
+                        (i, segment, clip_key(segment, source, 0.0, None),
+                         0.0, None)
+                        for i, segment, key, offset, skey in planned
+                        if outputs[i - 1] is None]
+
+            for i, segment, key, offset, skey in planned:
+                if outputs[i - 1] is not None:
+                    continue
                 stage(f"{'preview' if preview else 'render'} {i}/{len(segments)}")
                 render_source = source
-                source_offset = 0.0
-                section_key = None
-                group_index = None
                 if render_from_sections:
                     group_index, group = section_plan[i - 1]
-                    source_offset = float(group["start"])
-                    section_key = digest([
-                        section_source, group["start"], group["end"],
-                        sections.SECTION_VERSION])
-                key = digest([segment, data["words"], file_identity(source),
-                              options, brand, logo_identity, preview,
-                              source_offset, section_key])
-                cached = state["renders"].get(key)
-                expected_suffixes = [".mp4", ".srt"] if preview else [".mp4", ".srt", ".png", ".meta.json"]
-                if resume and cached and all(Path(cached).with_suffix(ext).is_file() for ext in expected_suffixes):
-                    outputs.append(cached)
-                    continue
-                if render_from_sections:
                     if group_index in failed_sections:
                         render_errors.append(
                             {"clip": segment["id"],
                              "error": failed_sections[group_index]})
                         continue
-                    loaded = loaded_sections.get(group_index)
-                    if loaded is None:
-                        try:
-                            render_source = sections.ensure_section(
-                                section_source, path, group_index,
-                                group["start"], group["end"])
-                            W, H = render_clips.ffprobe_dims(render_source)
-                            loaded_sections[group_index] = (
-                                render_source, W, H)
-                        except ingest.SectionDownloadTimeout as exc:
-                            print(f"Section download stalled: {exc}", flush=True)
-                            print("Downloading the full source once and "
-                                  "rendering from it instead.", flush=True)
-                            source = sections.ensure_full_source(
-                                section_source, path)
-                            render_from_sections = False
-                            source_offset = 0.0
-                            section_key = None
-                            W, H = render_clips.ffprobe_dims(source)
-                            render_source = source
-                            key = digest([
-                                segment, data["words"],
-                                file_identity(source), options, brand,
-                                logo_identity, preview, source_offset,
-                                section_key])
-                        except (Exception, SystemExit) as exc:
-                            failed_sections[group_index] = str(exc)
-                            render_errors.append(
-                                {"clip": segment["id"], "error": str(exc)})
-                            save_project(path, state)
-                            continue
-                    else:
-                        render_source, W, H = loaded
+                    render_source, W, H = loaded_sections[group_index]
+                tasks.append((i, segment, render_source, offset, key, W, H))
+
+            def render_task(task):
+                index, segment, render_source, source_offset, key, width, height = task
                 try:
-                    output = render_clips.render({**segment, "id": segment["id"] + "-" + key[:8]}, data["words"], render_source, W, H, path,
+                    output = render_clips.render(
+                        {**segment, "id": segment["id"] + "-" + key[:8]},
+                        data["words"], render_source, width, height, path,
                         options["aspect"], out_dir=out, style=options["style"],
-                        do_tighten=options["tighten"], loudnorm=options["loudnorm"], preview=preview,
-                        brand=brand, layout=options["layout"], centers=options["centers"],
-                        caption=options["caption"], source_offset=source_offset)
+                        do_tighten=options["tighten"],
+                        loudnorm=options["loudnorm"], preview=preview,
+                        brand=brand, layout=options["layout"],
+                        centers=options["centers"], caption=options["caption"],
+                        source_offset=source_offset)
+                    return index, segment, key, str(output), None
                 except (Exception, SystemExit) as exc:
+                    return index, segment, key, None, exc
+
+            try:
+                workers = max(1, int(os.environ.get("CHOPIFY_RENDER_WORKERS")
+                                     or min(4, os.cpu_count() or 2)))
+            except ValueError:
+                workers = 1
+            if workers > 1 and len(tasks) > 1:
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=workers,
+                                        thread_name_prefix="chopify-render") as pool:
+                    results = list(pool.map(render_task, tasks))
+            else:
+                results = [render_task(task) for task in tasks]
+
+            fatal = None
+            for index, segment, key, output, exc in results:
+                if exc is not None:
                     if not render_from_sections:
-                        raise
-                    render_errors.append(
-                        {"clip": segment["id"], "error": str(exc)})
-                    save_project(path, state)
-                    continue
-                state["renders"][key] = str(output)
-                outputs.append(str(output))
-                save_project(path, state)
+                        fatal = fatal or exc
+                    else:
+                        render_errors.append(
+                            {"clip": segment["id"], "error": str(exc)})
+                else:
+                    state["renders"][key] = output
+                    outputs[index - 1] = output
+            outputs = [output for output in outputs if output]
+            save_project(path, state)
+            if fatal is not None:
+                raise fatal
             state["last_outputs"] = outputs
             if render_errors:
                 message = f"{len(render_errors)} clip(s) failed to render."
