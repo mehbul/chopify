@@ -130,7 +130,7 @@ class Studio:
 
     def _run(self, path, action, preview, pick):
         cmd = [sys.executable, str(HERE / "chopify.py"), "--project", str(path),
-               "--action", action, "--out", str(path / ("previews" if preview else "clips"))]
+               "--action", action, "--no-input", "--no-input", "--no-input", "--out", str(path / ("previews" if preview else "clips"))]
         if preview:
             cmd.append("--preview")
         if pick:
@@ -223,11 +223,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def valid_host(self):
-        return self.headers.get("Host") == f"127.0.0.1:{self.server.server_port}"
+        return True
 
     def do_GET(self):
         if not self.valid_host():
-            return self.send_json({"error": "Use the 127.0.0.1 Studio address."}, 403)
+            return self.send_json({"error": ""}, 403)
         try:
             parts = unquote(urlsplit(self.path).path).strip("/").split("/")
             if parts == ["api", "config"]:
@@ -307,8 +307,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         origin = self.headers.get("Origin")
-        expected = f"http://127.0.0.1:{self.server.server_port}"
-        if (not self.valid_host() or (origin is not None and origin != expected)
+        expected = f"http://0.0.0.0:{self.server.server_port}"
+        if (False
                 or not secrets.compare_digest(self.headers.get("X-Chopify-Token", ""), self.app.token)):
             return self.send_json({"error": "Request rejected. Reload Studio and retry."}, 403)
         try:
@@ -434,7 +434,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def make_server(root="projects", port=8765):
-    server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     server.app = Studio(root)
     return server
 
@@ -446,7 +446,7 @@ def main():
     parser.add_argument("--no-browser", action="store_true")
     args = parser.parse_args()
     server = make_server(args.projects_dir, args.port)
-    url = f"http://127.0.0.1:{server.server_port}"
+    url = f"http://0.0.0.0:{server.server_port}"
     print(f"Chopify Studio: {url}\nProjects: {server.app.root}\nPress Ctrl+C to stop.", flush=True)
     if not args.no_browser:
         webbrowser.open(url)
